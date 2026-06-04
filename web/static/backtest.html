@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Auto Trader — Backtest</title>
+    <link rel="stylesheet" href="/static/styles.css?v=5" />
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo">SAT</span>
+        <span class="title">Backtest</span>
+      </div>
+      <nav class="nav">
+        <a href="/">Chart</a>
+        <a href="/backtest" class="active">Backtest</a>
+      </nav>
+      <div class="controls">
+        <select id="currency" title="Display currency">
+          <option value="auto">Currency: Auto</option>
+          <option value="usd">USD ($)</option>
+          <option value="jpy">JPY (¥)</option>
+        </select>
+        <select id="market" title="Market">
+          <option value="jp">Japan (TSE)</option>
+          <option value="us">United States</option>
+        </select>
+        <select id="stock-pick" title="Popular symbols"></select>
+        <input id="symbol" type="text" placeholder="e.g. 6758.T" maxlength="12" />
+        <input id="start" type="date" />
+        <input id="end" type="date" />
+        <select id="strategy" title="Strategy"></select>
+        <input
+          id="initial-cash"
+          type="number"
+          min="1000"
+          step="1000"
+          placeholder="Initial cash"
+          style="width: 110px"
+        />
+        <button id="run" type="button">Run</button>
+        <button id="compare-all" type="button" class="btn-secondary">Compare all</button>
+        <button id="scan-presets" type="button" class="btn-secondary" title="All strategies on preset Japan + US symbols">Scan presets</button>
+      </div>
+    </header>
+
+    <main class="layout layout-backtest">
+      <section class="chart-panel">
+        <div id="equity-chart"></div>
+        <div id="legend" class="legend"></div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="card" id="single-results">
+          <h2>Results</h2>
+          <p id="strategy-desc" class="strategy-desc"></p>
+          <dl id="metrics"></dl>
+        </section>
+        <section class="card hidden" id="compare-results">
+          <h2>Strategy comparison</h2>
+          <div class="compare-table-wrap">
+            <table class="compare-table" id="compare-table">
+              <thead>
+                <tr>
+                  <th>Strategy</th>
+                  <th>Return</th>
+                  <th>Max DD</th>
+                  <th>Win%</th>
+                  <th>Trades</th>
+                  <th>Sharpe</th>
+                  <th>P.F.</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <ul id="compare-errors" class="compare-errors"></ul>
+        </section>
+        <section class="card">
+          <h2>Conversion</h2>
+          <dl id="conversion"></dl>
+        </section>
+        <section class="card trades-card" id="trades-section">
+          <h2>Trades</h2>
+          <ul id="trades"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <p id="status" class="status">Pick a strategy and run, or compare all.</p>
+    <script src="/static/backtest.js?v=4"></script>
+  </body>
+</html>

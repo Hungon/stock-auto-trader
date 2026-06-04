@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Auto Trader — Chart</title>
+    <link rel="stylesheet" href="/static/styles.css?v=4" />
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo">SAT</span>
+        <span class="title">Stock Auto Trader</span>
+      </div>
+      <nav class="nav">
+        <a href="/" class="active">Chart</a>
+        <a href="/backtest">Backtest</a>
+      </nav>
+      <div class="controls">
+        <select id="currency" title="Display currency">
+          <option value="auto">Currency: Auto</option>
+          <option value="usd">USD ($)</option>
+          <option value="jpy">JPY (¥)</option>
+        </select>
+        <select id="market" title="Market">
+          <option value="jp">Japan (TSE)</option>
+          <option value="us">United States</option>
+        </select>
+        <select id="stock-pick" title="Popular symbols"></select>
+        <input id="symbol" type="text" placeholder="e.g. 7203.T" maxlength="12" />
+        <input id="start" type="date" />
+        <input id="end" type="date" />
+        <button id="load" type="button">Load</button>
+        <label class="live-label">
+          <input id="live-toggle" type="checkbox" checked />
+          <span id="live-dot" class="live-dot"></span>
+          Live
+        </label>
+      </div>
+      <div id="ohlc" class="ohlc">—</div>
+    </header>
+
+    <main class="layout">
+      <section class="chart-panel">
+        <div id="chart"></div>
+        <div id="legend" class="legend">
+          <span class="leg fast">SMA fast</span>
+          <span class="leg slow">SMA slow</span>
+          <span class="leg buy">▲ Buy signal</span>
+          <span class="leg sell">▼ Sell signal</span>
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="card">
+          <h2>Price &amp; conversion</h2>
+          <dl id="conversion"></dl>
+        </section>
+        <section class="card">
+          <h2>Account</h2>
+          <dl id="account"></dl>
+        </section>
+        <section class="card">
+          <h2>Backtest (range)</h2>
+          <dl id="stats"></dl>
+        </section>
+        <section class="card trades-card">
+          <h2>Trades</h2>
+          <ul id="trades"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <p id="status" class="status"></p>
+    <script src="/static/app.js?v=5"></script>
+  </body>
+</html>
