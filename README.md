@@ -1,19 +1,18 @@
 # stock-auto-trader
 
-Python CLI that trades US stocks on **Alpaca** using a **simple moving average (SMA) crossover** strategy.
+Python app for **US stock auto-trading on Alpaca** (SMA crossover) plus a **local web UI** for charting and **multi-strategy backtesting** on US and **Japan (TSE)** symbols.
 
 > **Risk warning:** Automated trading can lose money quickly. This project is educational tooling, not financial advice. Test thoroughly on paper before using real money.
 
 ## Features
 
-- SMA crossover signals (fast vs slow moving average)
-- Alpaca **live** or **paper** accounts
-- Risk limits: max notional per order, max shares per position
-- Kill switch file (`.kill_switch`) to halt new orders
-- Extra live guard: orders only submit when `LIVE_TRADING_CONFIRMED=yes`
-- **Backtesting** on Alpaca historical data or a local CSV
-- **TradingView-style chart** (candlesticks, volume, SMAs, buy/sell markers)
-- CLI: `status`, `run-once`, `run`, `backtest`, `chart`, `kill-switch`
+- **Live trading (US only):** SMA crossover on Alpaca paper or live accounts
+- **Japan (TSE):** Daily bars from Yahoo Finance — chart and backtest only (no orders)
+- **Web UI:** TradingView-style chart + dedicated backtest page ([Lightweight Charts](https://www.tradingview.com/lightweight-charts/))
+- **Six backtest strategies** with compare-all and multi-symbol scan
+- **USD / JPY** display with live or manual FX
+- Risk limits, kill switch, and `LIVE_TRADING_CONFIRMED` guard for live orders
+- **CLI:** `status`, `run-once`, `run`, `backtest`, `backtest-scan`, `chart`, `kill-switch`
 
 ## Screenshots
 
@@ -31,21 +30,24 @@ Equity curves and strategy comparison table for the same symbol and date range.
 
 ## Quick start
 
-### 1. Alpaca account
+### 1. Alpaca account (US trading)
 
 1. Sign up at [https://alpaca.markets/](https://alpaca.markets/)
-2. Create API keys (live and/or paper)
-3. For learning, use paper first: `TRADING_MODE=paper` and `ALPACA_BASE_URL=https://paper-api.alpaca.markets`
+2. Create API keys (paper recommended first)
+3. In `.env`: `TRADING_MODE=paper` and `ALPACA_BASE_URL=https://paper-api.alpaca.markets`
+
+Japan-only chart/backtest can run **without** Alpaca keys (demo mode uses synthetic US data; Japan uses Yahoo when you pick a `.T` symbol).
 
 ### 2. Install
 
 ```bash
-cd ~/Projects/stock-auto-trader
+git clone https://github.com/Hungon/stock-auto-trader.git
+cd stock-auto-trader
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys (optional for Japan backtest-only)
 ```
 
 ### 3. Check status (no orders)
@@ -54,17 +56,28 @@ cp .env.example .env
 stock-trader status
 ```
 
-### 4. Dry run one tick
+### 4. Web UI (chart + backtest)
 
-With live keys but `LIVE_TRADING_CONFIRMED=no`, `run-once` evaluates signals but does **not** send orders:
+```bash
+stock-trader chart
+```
+
+| URL | Purpose |
+|-----|---------|
+| http://127.0.0.1:8765/ | Chart — candlesticks, SMAs, volume, live refresh |
+| http://127.0.0.1:8765/backtest | Backtest — pick strategy, **Compare all**, or **Scan presets** |
+
+Toolbar: market (Japan / US), symbol, date range, currency. Default end date is **yesterday** (today’s bar is often incomplete on Yahoo).
+
+### 5. Live trading (US, careful)
+
+With `LIVE_TRADING_CONFIRMED=no`, `run-once` evaluates signals but does **not** send orders:
 
 ```bash
 stock-trader run-once
 ```
 
-### 5. Enable live orders (careful)
-
-Only after you understand the risks:
+To enable live orders:
 
 ```env
 TRADING_MODE=live
@@ -72,142 +85,112 @@ ALPACA_BASE_URL=https://api.alpaca.markets
 LIVE_TRADING_CONFIRMED=yes
 ```
 
-Then:
-
 ```bash
-stock-trader run-once   # single evaluation
-stock-trader run        # continuous loop (Ctrl+C to stop)
+stock-trader run-once   # single tick
+stock-trader run        # loop (Ctrl+C to stop)
 ```
 
-### Backtest page
+Live loop uses the **SMA crossover** from `.env` (`FAST_SMA_PERIOD` / `SLOW_SMA_PERIOD`) on your `SYMBOL`. Backtest strategies are simulation-only.
 
-```bash
-stock-trader chart
-# → http://127.0.0.1:8765/backtest
-```
+## Backtest strategies
 
-Pick **Japan (TSE)** or **United States**, symbol, date range, and a **strategy** (or **Compare all**). Japan uses Yahoo Finance (`.T` tickers); US uses Alpaca. Metrics include return, max drawdown, win rate, Sharpe, profit factor, and exposure.
+All strategies are long-only, fill at **bar close**, and share position limits from `.env` (Japan backtests scale cash/notional for yen). Strategies using **MA200** need ~200+ daily bars (use a range of at least ~2 years).
 
-**Strategies (single-symbol backtest):**
-
-| ID | Description |
-|----|-------------|
-| `sma_crossover` | Fast/slow SMA cross from `.env` |
-| `ma_cross_20_50` | Golden cross 20/50 + MA200 + filters (often strongest) |
+| ID | Summary |
+|----|---------|
+| `sma_crossover` | Fast/slow SMA cross from `.env` + volume filter; stop & trail |
+| `ma_cross_20_50` | Golden cross 20/50 + MA200 + rising MA50; stops, trail, take-profit |
 | `ma_trend_20_50` | Golden/death cross above MA200 with volume |
-| `rsi_mean_reversion` | RSI<30 above MA200; 5% stop, 10-day max hold |
-| `breakout_20` | 20-day high breakout + volume; trailing stop |
-| `trend_risk_control` | Beginner combo: trend + RSI + volume + stops |
+| `rsi_mean_reversion` | RSI oversold bounce above MA200; take-profit & stop |
+| `breakout_20` | New 20-day high + volume in uptrend; trail & take-profit |
+| `trend_risk_control` | Filtered golden cross + RSI band + volume; layered exits |
 
-Pair trading and multi-factor ranking are listed but need two symbols / a stock universe (not run in this UI yet).
+`pair_trading` and `multi_factor` are placeholders (need two symbols or a stock universe).
 
-CLI examples:
+**Metrics:** return vs buy & hold, max drawdown, win rate, Sharpe, profit factor, exposure, trade list.
+
+### CLI
 
 ```bash
-stock-trader backtest --market jp --symbol 6758.T --strategy ma_trend_20_50
+# One strategy
+stock-trader backtest --market jp --symbol 6758.T --strategy ma_cross_20_50
+
+# All strategies on one symbol
 stock-trader backtest --market jp --symbol 6758.T --compare
 
 # All strategies × multiple symbols
 stock-trader backtest-scan --symbols 6758.T,7203.T,SPY,AAPL
-```
 
-On the backtest page: enter **any** symbol, **Compare all** for one ticker, or **Scan presets** for all Japan/US picks in the toolbar.
-
-### Chart UI (TradingView-style)
-
-Starts a local web app with candlesticks, volume, SMA overlays, and crossover markers:
-
-```bash
-stock-trader chart
-# → http://127.0.0.1:8765/
-```
-
-Use the toolbar to change symbol and date range. Enable **Live** to auto-refresh (default every 15s; latest quote/bar every ~7s). Set `CHART_REFRESH_SECONDS` in `.env` to change the interval.
-
-For intraday movement, set `BAR_TIMEFRAME=5Min` or `1Min` in `.env` and restart the chart server.
-
-The sidebar shows account info, backtest stats for the range, and simulated trades.
-
-Built with [Lightweight Charts](https://www.tradingview.com/lightweight-charts/) (TradingView’s open-source library).
-
-### Backtest
-
-Run the SMA strategy on historical daily bars (no orders placed):
-
-```bash
-# Last 2 years (default) for SYMBOL in .env
-stock-trader backtest
-
-# Custom range
-stock-trader backtest --start 2022-01-01 --end 2024-12-31 --symbol SPY
+# Custom range (end before today avoids incomplete bars)
+stock-trader backtest --start 2022-01-01 --end 2025-06-03 --symbol SPY
 
 # Local CSV (timestamp/date + open,high,low,close,volume)
-stock-trader backtest --csv ./data/spy.csv --start 2020-01-01 --end 2024-01-01
+stock-trader backtest --csv ./data/spy.csv --symbol SPY
 ```
 
-Reports strategy return vs buy-and-hold, max drawdown, trade count, win rate, and annualized Sharpe.
-
-Fills are simulated at the **bar close** when a crossover fires, using the same position limits as live trading.
+List strategy IDs: `GET http://127.0.0.1:8765/api/strategies` (with chart server running).
 
 ### Kill switch
 
 ```bash
-stock-trader kill-switch --enable   # block new orders
+stock-trader kill-switch --enable
 stock-trader kill-switch --disable
 ```
 
-## Configuration
-
-| Variable | Description |
-|----------|-------------|
-| `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` | API credentials |
-| `ALPACA_BASE_URL` | Must match `TRADING_MODE` |
-| `TRADING_MODE` | `live` or `paper` |
-| `LIVE_TRADING_CONFIRMED` | `yes` to submit live orders |
-| `SYMBOL` | Ticker, e.g. `SPY` |
-| `FAST_SMA_PERIOD` / `SLOW_SMA_PERIOD` | Crossover windows |
-| `MAX_ORDER_NOTIONAL` | Cap $ per buy order |
-| `MAX_POSITION_SHARES` | Cap shares held / sold |
-| `POLL_INTERVAL_SECONDS` | Delay between loop ticks |
-| `BACKTEST_INITIAL_CASH` | Starting cash for US backtest (and CSV) |
-| `BACKTEST_INITIAL_CASH_JPY` | Optional starting cash in yen for Japan backtest |
-| `BACKTEST_MAX_ORDER_NOTIONAL_JPY` | Optional per-buy cap in yen (default scales from US-style `.env`) |
-
-## US vs Japan stocks
+## US vs Japan
 
 | | **US (e.g. SPY, AAPL)** | **Japan (e.g. 7203.T)** |
 |--|--|--|
-| **What is SPY?** | An ETF that tracks the US S&P 500 index — a common US benchmark | N/A |
-| **Data** | Alpaca (your API keys) | Yahoo Finance (free, ticker ends in `.T`) |
-| **Auto-trading** | Yes (Alpaca paper/live) | No — chart & backtest only |
+| **Data** | Alpaca (API keys) | Yahoo Finance (`.T` tickers) |
+| **Auto-trading** | Yes (paper/live) | No — chart & backtest only |
 | **Symbol format** | `AAPL`, `SPY` | `7203.T` or `7203` (Toyota) |
-
-Set Japan as default in `.env`:
+| **Aliases** | — | e.g. `SONY` → `6758.T` when market is Japan |
 
 ```env
 MARKET=jp
 SYMBOL=7203.T
 ```
 
-Popular Japan presets in the chart UI: Toyota, Sony, SoftBank, MUFG, Nintendo, and more.
+Popular presets are in the chart/backtest toolbar (Toyota, Sony, SoftBank, MUFG, Nintendo, etc.).
 
 ## Currency (USD / JPY)
 
-In the chart toolbar, choose **USD ($)**, **JPY (¥)**, or **Auto** (JPY for Japan stocks, USD for US).
-
-Cross-market viewing converts prices using the live **USD/JPY** rate (`USDJPY=X` on Yahoo). Override in `.env`:
+Toolbar: **USD**, **JPY**, or **Auto** (JPY for Japan, USD for US). Cross-currency view uses Yahoo `USDJPY=X` unless overridden:
 
 ```env
 DISPLAY_CURRENCY=auto
 FX_USDJPY=150.0
 ```
 
-## Strategy
+## Configuration
 
-- **Buy** when fast SMA crosses above slow SMA (and flat or short)
-- **Sell** when fast SMA crosses below slow SMA (and long)
-- Uses latest **daily** bars by default (`BAR_TIMEFRAME=1Day`)
+| Variable | Description |
+|----------|-------------|
+| `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` | Alpaca credentials (required for US live/backtest data) |
+| `ALPACA_BASE_URL` | Must match `TRADING_MODE` |
+| `ALPACA_DATA_FEED` | `iex` (free) or `sip` (paid) |
+| `TRADING_MODE` | `live` or `paper` |
+| `LIVE_TRADING_CONFIRMED` | `yes` to submit live orders |
+| `MARKET` | `auto`, `us`, or `jp` |
+| `SYMBOL` | Default ticker |
+| `DISPLAY_CURRENCY` | `auto`, `usd`, or `jpy` |
+| `FX_USDJPY` | Optional fixed JPY per 1 USD |
+| `FAST_SMA_PERIOD` / `SLOW_SMA_PERIOD` | Live SMA crossover & `sma_crossover` backtest |
+| `BAR_TIMEFRAME` | e.g. `1Day`, `5Min`, `1Min` |
+| `LOOKBACK_BARS` | Bars fetched for live loop |
+| `CHART_REFRESH_SECONDS` | Chart live refresh interval |
+| `MAX_ORDER_NOTIONAL` / `MAX_POSITION_SHARES` | Risk caps |
+| `POLL_INTERVAL_SECONDS` | Live loop delay |
+| `BACKTEST_INITIAL_CASH` | US / default starting cash |
+| `BACKTEST_INITIAL_CASH_JPY` | Optional yen starting cash |
+| `BACKTEST_MAX_ORDER_NOTIONAL_JPY` | Optional per-buy cap in yen |
+
+## Live trading logic (SMA only)
+
+- **Buy** when fast SMA crosses above slow SMA (flat position)
+- **Sell** when fast SMA crosses below slow SMA (long position)
+- Uses configured `BAR_TIMEFRAME` (default daily)
 
 ## Disclaimer
 
-You are responsible for compliance, taxes, and losses. Past performance of a simple SMA strategy does not predict future results.
+You are responsible for compliance, taxes, and losses. Backtest results omit commission, slippage, and survivorship bias. Past performance does not predict future results.
