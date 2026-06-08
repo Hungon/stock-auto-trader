@@ -15,6 +15,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
 from stock_auto_trader.config import Settings
+from stock_auto_trader.risk.market_hours import MarketClockInfo
 
 
 def _parse_timeframe(value: str) -> TimeFrame:
@@ -112,8 +113,34 @@ class AlpacaBroker:
         return str(submitted.id)
 
     def is_market_open(self) -> bool:
+        return self.get_market_clock().is_open
+
+    def get_market_clock(self) -> MarketClockInfo:
+        """Return normalized Alpaca clock for market-hours risk checks."""
         clock = self._trading.get_clock()
-        return bool(clock.is_open)
+        ts = clock.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        next_open = clock.next_open
+        if next_open and next_open.tzinfo is None:
+            next_open = next_open.replace(tzinfo=timezone.utc)
+        next_close = clock.next_close
+        if next_close and next_close.tzinfo is None:
+            next_close = next_close.replace(tzinfo=timezone.utc)
+        return MarketClockInfo(
+            is_open=bool(clock.is_open),
+            next_open=next_open,
+            next_close=next_close,
+            timestamp=ts,
+        )
+
+    def cancel_all_orders(self) -> None:
+        """Cancel all open orders (used by DAILY_LOSS/DRAWDOWN liquidate action)."""
+        self._trading.cancel_orders()
+
+    def close_all_positions(self) -> None:
+        """Liquidate all positions and cancel pending orders."""
+        self._trading.close_all_positions(cancel_orders=True)
 
     def fetch_latest_tick(self, symbol: str) -> dict:
         """Latest bar and quote for live chart updates."""

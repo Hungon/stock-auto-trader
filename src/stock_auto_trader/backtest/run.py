@@ -7,6 +7,7 @@ import pandas as pd
 
 from stock_auto_trader.backtest.data import fetch_bars_for_backtest, load_bars_from_csv
 from stock_auto_trader.backtest.engine import BacktestResult
+from stock_auto_trader.backtest.execution import FillParams
 from stock_auto_trader.strategy.strategies import get_strategy, run_strategy
 from stock_auto_trader.backtest.market_params import (
     resolve_backtest_limits,
@@ -17,6 +18,16 @@ from stock_auto_trader.broker.alpaca import AlpacaBroker
 from stock_auto_trader.config import Settings
 from stock_auto_trader.data.bars_util import sanitize_bars
 from stock_auto_trader.data.fetch import resolve_ticker
+
+
+def fill_params_from_settings(settings: Settings) -> FillParams:
+    """Build backtest fill assumptions from BACKTEST_* env vars."""
+    return FillParams(
+        slippage_bps=settings.backtest_slippage_bps,
+        commission_per_trade=settings.backtest_commission_per_trade,
+        commission_bps=settings.backtest_commission_bps,
+        execution_mode=settings.backtest_execution_mode,
+    )
 
 
 def load_backtest_bars(
@@ -89,6 +100,8 @@ def execute_backtest(
         max_position_shares=max_shares,
         fast_period=settings.fast_sma_period,
         slow_period=settings.slow_sma_period,
+        fill_params=fill_params_from_settings(settings),
+        market=mkt,
     )
     return result, sym, mkt, alias_note
 
@@ -144,6 +157,8 @@ def execute_backtest_compare(
                 max_position_shares=max_shares,
                 fast_period=settings.fast_sma_period,
                 slow_period=settings.slow_sma_period,
+                fill_params=fill_params_from_settings(settings),
+                market=mkt,
             )
             results.append(r)
         except Exception as exc:

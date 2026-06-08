@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import time
 from datetime import date, timedelta
-from pathlib import Path
 
 from alpaca.trading.enums import OrderSide
 from rich.console import Console
@@ -11,6 +10,8 @@ from rich.console import Console
 from stock_auto_trader.broker.alpaca import AlpacaBroker
 from stock_auto_trader.config import Settings
 from stock_auto_trader.data.fetch import fetch_bars_between, resolve_ticker
+from stock_auto_trader.logging_config import log_event
+from stock_auto_trader.risk.gate import RiskGate
 from stock_auto_trader.strategy.sma_crossover import Signal, compute_sma_signal
 
 logger = logging.getLogger(__name__)
@@ -18,15 +19,18 @@ console = Console()
 
 
 class TradingEngine:
+    """Live/paper SMA crossover loop with pre-order risk gating."""
+
     def __init__(self, settings: Settings, broker: AlpacaBroker) -> None:
         self.settings = settings
         self.broker = broker
+        self.risk_gate = RiskGate(settings, broker)
 
     def kill_switch_active(self) -> bool:
-        path: Path = self.settings.kill_switch_path
-        return path.exists()
+        return self.risk_gate.kill_switch_active()
 
     def run_once(self) -> dict:
+        """Evaluate signal once, run risk checks, and optionally submit orders."""
         symbol = self.settings.symbol
         _, market, _ = resolve_ticker(symbol, self.settings)
 
@@ -38,17 +42,23 @@ class TradingEngine:
                 "message": "Use chart/backtest for Japan; Alpaca orders are US-only.",
             }
 
-        if self.kill_switch_active():
-            return {"action": "skipped", "reason": "kill_switch_active"}
-
-        if not self.broker.is_market_open():
-            return {"action": "skipped", "reason": "market_closed"}
-
         end = date.today()
         start = end - timedelta(days=self.settings.lookback_bars * 3)
         bars = fetch_bars_between(
             self.settings, symbol, start, end, broker=self.broker
         )
+
+        risk = self.risk_gate.pre_order_check(symbol=symbol, bars=bars)
+        if not risk.allowed:
+            msg = f"Orders blocked: {', '.join(risk.reasons)}"
+            console.print(f"[yellow]{msg}[/yellow]")
+            return {
+                "action": "skipped",
+                "reason": risk.reasons[0] if risk.reasons else "risk_check_failed",
+                "reasons": risk.reasons,
+                "events": risk.events,
+            }
+
         signal = compute_sma_signal(
             bars,
             self.settings.fast_sma_period,
@@ -56,6 +66,17 @@ class TradingEngine:
         )
         position_qty = self.broker.get_position_qty(symbol)
         last_close = float(bars["close"].iloc[-1])
+
+        log_event(
+            logger,
+            "signal_generated",
+            symbol=symbol,
+            strategy="sma_crossover",
+            signal=signal.value,
+            reason="fast_sma_crossed"
+            if signal != Signal.HOLD
+            else "no_crossover",
+        )
 
         result = {
             "symbol": symbol,
@@ -68,18 +89,25 @@ class TradingEngine:
         if signal == Signal.BUY and position_qty <= 0:
             qty = self._buy_quantity(last_close)
             if qty > 0:
-                result.update(self._maybe_buy(symbol, qty))
+                result.update(self._maybe_buy(symbol, qty, last_close, bars))
             else:
                 result["action"] = "skipped"
                 result["reason"] = "buy_qty_zero_after_risk_limits"
 
         elif signal == Signal.SELL and position_qty > 0:
             sell_qty = min(int(position_qty), self.settings.max_position_shares)
-            result.update(self._maybe_sell(symbol, sell_qty))
+            result.update(self._maybe_sell(symbol, sell_qty, last_close, bars))
 
         return result
 
     def run_loop(self, iterations: int | None = None) -> None:
+        """Poll run_once until interrupted or *iterations* ticks complete."""
+        log_event(
+            logger,
+            "bot_started",
+            symbol=self.settings.symbol,
+            trading_mode=self.settings.trading_mode,
+        )
         count = 0
         while iterations is None or count < iterations:
             try:
@@ -99,22 +127,78 @@ class TradingEngine:
         qty = min(max_by_notional, self.settings.max_position_shares)
         return max(qty, 0)
 
-    def _maybe_buy(self, symbol: str, qty: int) -> dict:
+    def _maybe_buy(
+        self, symbol: str, qty: int, price: float, bars
+    ) -> dict:
         if not self.settings.orders_enabled:
             return {
                 "action": "dry_run_buy",
                 "qty": qty,
                 "reason": "live_trading_not_confirmed",
             }
+
+        risk = self.risk_gate.pre_order_check(
+            symbol=symbol,
+            bars=bars,
+            side=OrderSide.BUY,
+            qty=qty,
+            price=price,
+        )
+        if not risk.allowed:
+            msg = f"BUY blocked: {', '.join(risk.reasons)}"
+            console.print(f"[red]{msg}[/red]")
+            return {
+                "action": "blocked",
+                "side": "buy",
+                "qty": qty,
+                "reasons": risk.reasons,
+            }
+
         order_id = self.broker.submit_market_order(symbol, OrderSide.BUY, qty)
+        log_event(
+            logger,
+            "order_submitted",
+            symbol=symbol,
+            side="buy",
+            qty=qty,
+            order_id=order_id,
+        )
         return {"action": "buy", "qty": qty, "order_id": order_id}
 
-    def _maybe_sell(self, symbol: str, qty: int) -> dict:
+    def _maybe_sell(
+        self, symbol: str, qty: int, price: float, bars
+    ) -> dict:
         if not self.settings.orders_enabled:
             return {
                 "action": "dry_run_sell",
                 "qty": qty,
                 "reason": "live_trading_not_confirmed",
             }
+
+        risk = self.risk_gate.pre_order_check(
+            symbol=symbol,
+            bars=bars,
+            side=OrderSide.SELL,
+            qty=qty,
+            price=price,
+        )
+        if not risk.allowed:
+            msg = f"SELL blocked: {', '.join(risk.reasons)}"
+            console.print(f"[red]{msg}[/red]")
+            return {
+                "action": "blocked",
+                "side": "sell",
+                "qty": qty,
+                "reasons": risk.reasons,
+            }
+
         order_id = self.broker.submit_market_order(symbol, OrderSide.SELL, qty)
+        log_event(
+            logger,
+            "order_submitted",
+            symbol=symbol,
+            side="sell",
+            qty=qty,
+            order_id=order_id,
+        )
         return {"action": "sell", "qty": qty, "order_id": order_id}

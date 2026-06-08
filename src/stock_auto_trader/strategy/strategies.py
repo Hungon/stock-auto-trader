@@ -6,6 +6,7 @@ from typing import Callable
 import pandas as pd
 
 from stock_auto_trader.backtest.engine import BacktestResult, build_backtest_result
+from stock_auto_trader.backtest.execution import FillParams
 from stock_auto_trader.backtest.simulator import simulate_long_only
 from stock_auto_trader.strategy.indicators import (
     average_volume,
@@ -45,6 +46,47 @@ def _prep(bars: pd.DataFrame) -> pd.DataFrame:
     return b
 
 
+def _simulate_and_build(
+    bars: pd.DataFrame,
+    *,
+    symbol: str,
+    initial_cash: float,
+    max_order_notional: float,
+    max_position_shares: int,
+    entry_signal: pd.Series,
+    exit_signal: pd.Series,
+    strategy_id: str,
+    fill_params: FillParams | None = None,
+    market: str = "us",
+    **sim_kwargs,
+) -> BacktestResult:
+    fp = fill_params or FillParams()
+    trades, equity_pts, equity_idx, total_commission = simulate_long_only(
+        bars,
+        symbol=symbol,
+        initial_cash=initial_cash,
+        max_order_notional=max_order_notional,
+        max_position_shares=max_position_shares,
+        entry_signal=entry_signal,
+        exit_signal=exit_signal,
+        fill_params=fp,
+        strategy_id=strategy_id,
+        market=market,
+        **sim_kwargs,
+    )
+    return build_backtest_result(
+        bars,
+        symbol=symbol,
+        initial_cash=initial_cash,
+        trades=trades,
+        equity_points=equity_pts,
+        equity_index=equity_idx,
+        strategy_id=strategy_id,
+        fill_params=fp,
+        total_commission=total_commission,
+    )
+
+
 def run_sma_crossover(
     bars: pd.DataFrame,
     *,
@@ -54,12 +96,14 @@ def run_sma_crossover(
     initial_cash: float,
     max_order_notional: float,
     max_position_shares: int,
+    fill_params: FillParams | None = None,
+    market: str = "us",
 ) -> BacktestResult:
     signals = sma_signal_series(bars, fast_period, slow_period)
     b = _prep(bars)
     entry = (signals == Signal.BUY.value) & (b["_vol"] > b["_vol_avg20"])
     exit_ = signals == Signal.SELL.value
-    trades, equity_pts, equity_idx = simulate_long_only(
+    return _simulate_and_build(
         bars,
         symbol=symbol,
         initial_cash=initial_cash,
@@ -67,18 +111,12 @@ def run_sma_crossover(
         max_position_shares=max_position_shares,
         entry_signal=entry,
         exit_signal=exit_,
+        strategy_id="sma_crossover",
+        fill_params=fill_params,
+        market=market,
         stop_loss_pct=0.06,
         trailing_stop_pct=0.1,
         min_hold_bars=3,
-    )
-    return build_backtest_result(
-        bars,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        trades=trades,
-        equity_points=equity_pts,
-        equity_index=equity_idx,
-        strategy_id="sma_crossover",
     )
 
 
@@ -100,7 +138,7 @@ def run_ma_cross_20_50(
         & (b["_vol"] > b["_vol_avg20"])
     )
     exit_ = cross_below(b["_ma20"], b["_ma50"]) | (b["_close"] < b["_ma200"])
-    trades, equity_pts, equity_idx = simulate_long_only(
+    return _simulate_and_build(
         bars,
         symbol=symbol,
         initial_cash=initial_cash,
@@ -108,19 +146,13 @@ def run_ma_cross_20_50(
         max_position_shares=max_position_shares,
         entry_signal=entry,
         exit_signal=exit_,
+        strategy_id="ma_cross_20_50",
+        fill_params=_kwargs.get("fill_params"),
+        market=_kwargs.get("market", "us"),
         stop_loss_pct=0.05,
         trailing_stop_pct=0.12,
         take_profit_pct=0.25,
         min_hold_bars=5,
-    )
-    return build_backtest_result(
-        bars,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        trades=trades,
-        equity_points=equity_pts,
-        equity_index=equity_idx,
-        strategy_id="ma_cross_20_50",
     )
 
 
@@ -142,7 +174,7 @@ def run_ma_trend_20_50(
         & rising(b["_ma50"], 10)
     )
     exit_ = cross_below(b["_ma20"], b["_ma50"])
-    trades, equity_pts, equity_idx = simulate_long_only(
+    return _simulate_and_build(
         bars,
         symbol=symbol,
         initial_cash=initial_cash,
@@ -150,18 +182,12 @@ def run_ma_trend_20_50(
         max_position_shares=max_position_shares,
         entry_signal=entry,
         exit_signal=exit_,
+        strategy_id="ma_trend_20_50",
+        fill_params=_kwargs.get("fill_params"),
+        market=_kwargs.get("market", "us"),
         stop_loss_pct=0.05,
         trailing_stop_pct=0.1,
         min_hold_bars=5,
-    )
-    return build_backtest_result(
-        bars,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        trades=trades,
-        equity_points=equity_pts,
-        equity_index=equity_idx,
-        strategy_id="ma_trend_20_50",
     )
 
 
@@ -180,7 +206,7 @@ def run_rsi_mean_reversion(
     turning_up = b["_rsi14"] > b["_rsi14"].shift(1)
     entry = oversold & turning_up & (b["_close"] > b["_ma200"])
     exit_ = b["_rsi14"] > 58
-    trades, equity_pts, equity_idx = simulate_long_only(
+    return _simulate_and_build(
         bars,
         symbol=symbol,
         initial_cash=initial_cash,
@@ -188,19 +214,13 @@ def run_rsi_mean_reversion(
         max_position_shares=max_position_shares,
         entry_signal=entry,
         exit_signal=exit_,
+        strategy_id="rsi_mean_reversion",
+        fill_params=_kwargs.get("fill_params"),
+        market=_kwargs.get("market", "us"),
         stop_loss_pct=0.05,
         take_profit_pct=0.12,
         max_hold_bars=15,
         min_hold_bars=3,
-    )
-    return build_backtest_result(
-        bars,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        trades=trades,
-        equity_points=equity_pts,
-        equity_index=equity_idx,
-        strategy_id="rsi_mean_reversion",
     )
 
 
@@ -224,7 +244,7 @@ def run_breakout_20(
         & (b["_ma20"] > b["_ma50"])
     )
     exit_ = b["_close"] < b["_ma20"]
-    trades, equity_pts, equity_idx = simulate_long_only(
+    return _simulate_and_build(
         bars,
         symbol=symbol,
         initial_cash=initial_cash,
@@ -232,19 +252,13 @@ def run_breakout_20(
         max_position_shares=max_position_shares,
         entry_signal=entry,
         exit_signal=exit_,
+        strategy_id="breakout_20",
+        fill_params=_kwargs.get("fill_params"),
+        market=_kwargs.get("market", "us"),
         trailing_stop_pct=0.1,
         take_profit_pct=0.2,
         min_hold_bars=3,
         track_breakout_level=prior_high20,
-    )
-    return build_backtest_result(
-        bars,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        trades=trades,
-        equity_points=equity_pts,
-        equity_index=equity_idx,
-        strategy_id="breakout_20",
     )
 
 
@@ -267,7 +281,7 @@ def run_trend_risk_control(
         & (b["_vol"] > b["_vol_avg20"])
     )
     exit_ = cross_below(b["_ma20"], b["_ma50"]) | (b["_close"] < b["_ma200"])
-    trades, equity_pts, equity_idx = simulate_long_only(
+    return _simulate_and_build(
         bars,
         symbol=symbol,
         initial_cash=initial_cash,
@@ -275,19 +289,13 @@ def run_trend_risk_control(
         max_position_shares=max_position_shares,
         entry_signal=entry,
         exit_signal=exit_,
+        strategy_id="trend_risk_control",
+        fill_params=_kwargs.get("fill_params"),
+        market=_kwargs.get("market", "us"),
         stop_loss_pct=0.04,
         trailing_stop_pct=0.12,
         take_profit_pct=0.22,
         min_hold_bars=5,
-    )
-    return build_backtest_result(
-        bars,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        trades=trades,
-        equity_points=equity_pts,
-        equity_index=equity_idx,
-        strategy_id="trend_risk_control",
     )
 
 
@@ -386,6 +394,8 @@ def run_strategy(
     max_position_shares: int,
     fast_period: int = 10,
     slow_period: int = 30,
+    fill_params: FillParams | None = None,
+    market: str = "us",
 ) -> BacktestResult:
     spec = get_strategy(strategy_id)
     if not spec.supported or spec.run is None:
@@ -399,6 +409,8 @@ def run_strategy(
             initial_cash=initial_cash,
             max_order_notional=max_order_notional,
             max_position_shares=max_position_shares,
+            fill_params=fill_params,
+            market=market,
         )
     return spec.run(
         bars,
@@ -406,4 +418,6 @@ def run_strategy(
         initial_cash=initial_cash,
         max_order_notional=max_order_notional,
         max_position_shares=max_position_shares,
+        fill_params=fill_params,
+        market=market,
     )
