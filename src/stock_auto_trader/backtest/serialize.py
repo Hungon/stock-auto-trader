@@ -66,6 +66,13 @@ def result_to_dict(
                 "qty": t.qty,
                 "price": price,
                 "cash_after": cash_after,
+                "commission": t.commission,
+                "slippage_bps": t.slippage_bps,
+                "execution_mode": t.execution_mode,
+                "reason": t.reason,
+                "position_after": t.position_after,
+                "equity_after": t.equity_after,
+                "realized_pnl": t.realized_pnl,
             }
         )
 
@@ -103,6 +110,11 @@ def result_to_dict(
             else result.avg_trade_pnl
         ),
         "exposure_pct": result.exposure_pct,
+        "slippage_bps": result.slippage_bps,
+        "commission_per_trade": result.commission_per_trade,
+        "commission_bps": result.commission_bps,
+        "total_commission": result.total_commission,
+        "execution_mode": result.execution_mode,
         "native_currency": native,
         "display_currency": display,
         "equity_curve": equity,

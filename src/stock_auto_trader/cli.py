@@ -4,7 +4,6 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -15,25 +14,45 @@ from stock_auto_trader.backtest.run import (
     execute_backtest_compare,
     execute_backtest_scan,
 )
+from stock_auto_trader.backtest.walk_forward import run_walk_forward
 from stock_auto_trader.broker.alpaca import AlpacaBroker
 from stock_auto_trader.config import load_settings
+from stock_auto_trader.config_validation import validate_settings
 from stock_auto_trader.data.fetch import fetch_bars_between, resolve_ticker
 from stock_auto_trader.engine import TradingEngine
+from stock_auto_trader.logging_config import log_event, setup_logging
 from stock_auto_trader.strategy.sma_crossover import compute_sma_signal
+from stock_auto_trader.trade_journal import export_backtest_result, export_from_backtest_json
 
 app = typer.Typer(
     name="stock-trader",
     help="Alpaca auto-trader with SMA crossover strategy.",
 )
 console = Console()
+logger = logging.getLogger(__name__)
 
 
-def _setup_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+def _load_and_validate(env_file: Path):
+    """Load settings and exit the CLI if fatal validation errors exist."""
+    settings = load_settings(env_file)
+    validation = validate_settings(settings)
+    if not validation.valid:
+        for issue in validation.fatal_issues:
+            console.print(f"[red]Config error ({issue.field}): {issue.message}[/red]")
+            log_event(
+                logger,
+                "config_validation_failed",
+                level=logging.ERROR,
+                field=issue.field,
+                message=issue.message,
+            )
+        raise typer.Exit(code=1)
+    log_event(logger, "config_loaded", trading_mode=settings.trading_mode)
+    return settings, validation
+
+
+def _setup_logging(verbose: bool, settings) -> None:
+    setup_logging(settings, verbose=verbose)
 
 
 @app.command("status")
@@ -41,7 +60,7 @@ def status(
     env_file: Path = typer.Option(Path(".env"), "--env-file", help="Path to .env"),
 ) -> None:
     """Show account, position, and latest SMA signal."""
-    settings = load_settings(env_file)
+    settings, validation = _load_and_validate(env_file)
     ticker, market, alias_note = resolve_ticker(settings.symbol, settings)
     broker = AlpacaBroker(settings)
     engine = TradingEngine(settings, broker)
@@ -76,6 +95,11 @@ def status(
         table.add_row("Auto-trading", "disabled (Japan is data/backtest only)")
     table.add_row("SMA signal", signal.value)
     table.add_row("Kill switch", str(engine.kill_switch_active()))
+    if validation.warnings:
+        for w in validation.warnings:
+            table.add_row(f"Warning ({w.field})", w.message)
+    else:
+        table.add_row("Config validation", "OK")
     console.print(table)
 
 
@@ -85,8 +109,8 @@ def run_once(
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Evaluate strategy once and place orders if rules allow."""
-    _setup_logging(verbose)
-    settings = load_settings(env_file)
+    settings, _ = _load_and_validate(env_file)
+    _setup_logging(verbose, settings)
     broker = AlpacaBroker(settings)
     engine = TradingEngine(settings, broker)
     outcome = engine.run_once()
@@ -99,8 +123,8 @@ def run(
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Run the trading loop until interrupted (Ctrl+C)."""
-    _setup_logging(verbose)
-    settings = load_settings(env_file)
+    settings, _ = _load_and_validate(env_file)
+    _setup_logging(verbose, settings)
     broker = AlpacaBroker(settings)
     engine = TradingEngine(settings, broker)
 
@@ -156,6 +180,11 @@ def _print_backtest_result(
         else "n/a"
     )
     table.add_row("Sharpe (ann.)", sharpe)
+    table.add_row("Execution mode", result.execution_mode)
+    table.add_row("Slippage (bps)", str(result.slippage_bps))
+    table.add_row("Commission/trade", f"{result.commission_per_trade:.4f}")
+    table.add_row("Commission (bps)", str(result.commission_bps))
+    table.add_row("Total commission", f"{result.total_commission:.4f}")
     console.print(table)
 
     if show_trades and result.trades:
@@ -216,9 +245,14 @@ def backtest(
         help="Use a local CSV instead of API/Yahoo (columns: timestamp/date, OHLCV)",
     ),
     show_trades: bool = typer.Option(True, "--trades/--no-trades"),
+    export_trades: Path | None = typer.Option(
+        None,
+        "--export-trades",
+        help="Export trade journal to CSV or JSON (by extension)",
+    ),
 ) -> None:
     """Backtest the SMA crossover strategy on historical bars."""
-    settings = load_settings(env_file)
+    settings, _ = _load_and_validate(env_file)
     sym = symbol or settings.symbol
     default_start, default_end = default_backtest_range()
     end_date = _parse_date(end) if end else default_end
@@ -285,6 +319,10 @@ def backtest(
     if spec:
         console.print(f"[dim]{spec.name}: {spec.description}[/dim]")
     _print_backtest_result(result, market=mkt, show_trades=show_trades)
+    if export_trades:
+        fmt = "json" if export_trades.suffix.lower() == ".json" else "csv"
+        export_backtest_result(result, market=mkt, fmt=fmt, output_path=export_trades)
+        console.print(f"[green]Trades exported to[/green] {export_trades}")
     if not show_trades and result.trades:
         console.print(f"[dim]{result.num_trades} trades (use --trades to list)[/dim]")
 
@@ -302,7 +340,7 @@ def backtest_scan(
     initial_cash: float | None = typer.Option(None, "--initial-cash"),
 ) -> None:
     """Compare all strategies across multiple symbols."""
-    settings = load_settings(env_file)
+    settings, _ = _load_and_validate(env_file)
     default_start, default_end = default_backtest_range()
     end_date = _parse_date(end) if end else default_end
     start_date = _parse_date(start) if start else default_start
@@ -379,7 +417,7 @@ def kill_switch(
     ),
 ) -> None:
     """Stop new orders by creating/removing .kill_switch."""
-    settings = load_settings(env_file)
+    settings, _ = _load_and_validate(env_file)
     path = settings.kill_switch_path
     if enable:
         path.touch()
@@ -389,6 +427,166 @@ def kill_switch(
         console.print(f"Kill switch OFF: removed {path}")
     else:
         console.print("Kill switch already off.")
+
+
+@app.command("export-trades")
+def export_trades_cmd(
+    env_file: Path = typer.Option(Path(".env"), "--env-file"),
+    input_file: Path | None = typer.Option(
+        None,
+        "--input",
+        help="Backtest result JSON file",
+    ),
+    fmt: str = typer.Option("csv", "--format", help="csv or json"),
+    output: Path | None = typer.Option(None, "--output", help="Output file (stdout if omitted)"),
+    symbol: str | None = typer.Option(None, "--symbol"),
+    strategy: str = typer.Option("sma_crossover", "--strategy"),
+    start: str | None = typer.Option(None, "--start"),
+    end: str | None = typer.Option(None, "--end"),
+) -> None:
+    """Export trade journal from backtest results."""
+    if fmt not in {"csv", "json"}:
+        raise typer.BadParameter('--format must be "csv" or "json"')
+
+    if input_file:
+        export_from_backtest_json(input_file, fmt=fmt, output_path=output)
+        if output:
+            console.print(f"[green]Exported to[/green] {output}")
+        return
+
+    settings, _ = _load_and_validate(env_file)
+    sym = symbol or settings.symbol
+    default_start, default_end = default_backtest_range()
+    end_date = _parse_date(end) if end else default_end
+    start_date = _parse_date(start) if start else default_start
+
+    result, _, mkt, _ = execute_backtest(
+        settings,
+        symbol=sym,
+        start=start_date,
+        end=end_date,
+        strategy_id=strategy,
+    )
+    export_backtest_result(result, market=mkt, fmt=fmt, output_path=output)
+    if output:
+        console.print(f"[green]Exported {result.num_trades} trades to[/green] {output}")
+
+
+@app.command("walk-forward")
+def walk_forward_cmd(
+    env_file: Path = typer.Option(Path(".env"), "--env-file"),
+    symbol: str = typer.Option("SPY", "--symbol"),
+    strategy: str = typer.Option("sma_crossover", "--strategy"),
+    start: str = typer.Option(..., "--start", help="YYYY-MM-DD"),
+    end: str = typer.Option(..., "--end", help="YYYY-MM-DD"),
+    train_years: int = typer.Option(3, "--train-years"),
+    test_months: int = typer.Option(6, "--test-months"),
+    initial_cash: float | None = typer.Option(None, "--initial-cash"),
+    compare: bool = typer.Option(
+        False,
+        "--compare",
+        help="Compare all supported strategies (summary only)",
+    ),
+) -> None:
+    """Run walk-forward out-of-sample backtests."""
+    settings, _ = _load_and_validate(env_file)
+    _setup_logging(False, settings)
+    start_date = _parse_date(start)
+    end_date = _parse_date(end)
+    if start_date >= end_date:
+        raise typer.BadParameter("--start must be before --end")
+
+    if compare:
+        from stock_auto_trader.strategy.strategies import STRATEGIES
+
+        table = Table(title=f"Walk-forward compare: {symbol}")
+        table.add_column("Strategy")
+        table.add_column("Windows")
+        table.add_column("Total return %")
+        table.add_column("Max DD %")
+        table.add_column("Trades")
+        for spec in STRATEGIES.values():
+            if not spec.supported:
+                continue
+            try:
+                summary = run_walk_forward(
+                    settings,
+                    symbol=symbol,
+                    strategy_id=spec.id,
+                    start=start_date,
+                    end=end_date,
+                    train_years=train_years,
+                    test_months=test_months,
+                    initial_cash=initial_cash,
+                )
+                table.add_row(
+                    spec.name,
+                    str(summary.number_of_windows),
+                    f"{summary.total_return_pct:+.2f}",
+                    f"{summary.max_drawdown_pct:.2f}",
+                    str(summary.total_trades),
+                )
+            except Exception as exc:
+                table.add_row(spec.name, "—", "—", "—", str(exc)[:30])
+        console.print(table)
+        return
+
+    summary = run_walk_forward(
+        settings,
+        symbol=symbol,
+        strategy_id=strategy,
+        start=start_date,
+        end=end_date,
+        train_years=train_years,
+        test_months=test_months,
+        initial_cash=initial_cash,
+    )
+
+    summary_table = Table(title=f"Walk-forward: {symbol} / {strategy}")
+    summary_table.add_column("Metric")
+    summary_table.add_column("Value")
+    summary_table.add_row("Windows", str(summary.number_of_windows))
+    summary_table.add_row("Total return", f"{summary.total_return_pct:+.2f}%")
+    if summary.annualized_return_pct is not None:
+        summary_table.add_row("CAGR (approx.)", f"{summary.annualized_return_pct:+.2f}%")
+    summary_table.add_row("Max drawdown", f"{summary.max_drawdown_pct:.2f}%")
+    if summary.sharpe_ratio is not None:
+        summary_table.add_row("Sharpe (avg)", f"{summary.sharpe_ratio:.2f}")
+    if summary.win_rate_pct is not None:
+        summary_table.add_row("Win rate (avg)", f"{summary.win_rate_pct:.1f}%")
+    if summary.profit_factor is not None:
+        summary_table.add_row("Profit factor (avg)", f"{summary.profit_factor:.2f}")
+    summary_table.add_row("Total trades", str(summary.total_trades))
+    console.print(summary_table)
+
+    window_table = Table(title="Per-window results")
+    window_table.add_column("Window")
+    window_table.add_column("Train start")
+    window_table.add_column("Train end")
+    window_table.add_column("Test start")
+    window_table.add_column("Test end")
+    window_table.add_column("Return %")
+    window_table.add_column("Max DD %")
+    window_table.add_column("Sharpe")
+    window_table.add_column("Trades")
+    for w in summary.windows:
+        sharpe = (
+            f"{w.result.sharpe_ratio:.2f}"
+            if w.result.sharpe_ratio is not None
+            else "n/a"
+        )
+        window_table.add_row(
+            str(w.window),
+            str(w.train_start),
+            str(w.train_end),
+            str(w.test_start),
+            str(w.test_end),
+            f"{w.result.total_return_pct:+.2f}",
+            f"{w.result.max_drawdown_pct:.2f}",
+            sharpe,
+            str(w.result.num_trades),
+        )
+    console.print(window_table)
 
 
 if __name__ == "__main__":
