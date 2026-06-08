@@ -256,6 +256,11 @@ function renderSingleResults(data) {
     ["Avg trade", avgTrade],
     ["Exposure", exposure],
     ["Sharpe (ann.)", data.sharpe_ratio != null ? data.sharpe_ratio.toFixed(2) : "n/a"],
+    ["Execution", data.execution_mode || "next_open"],
+    ["Slippage (bps)", data.slippage_bps != null ? String(data.slippage_bps) : "0"],
+    ["Commission/trade", data.commission_per_trade != null ? formatPrice(data.commission_per_trade, ccy) : "0"],
+    ["Commission (bps)", data.commission_bps != null ? String(data.commission_bps) : "0"],
+    ["Total commission", data.total_commission != null ? formatPrice(data.total_commission, ccy) : "0"],
   ]);
 
   renderConversion(data);
@@ -266,7 +271,7 @@ function renderSingleResults(data) {
     .reverse()
     .map(
       (t) =>
-        `<li class="${t.side}">${t.time} ${t.side.toUpperCase()} ${t.qty} @ ${formatPrice(t.price, ccy)} · cash ${formatPrice(t.cash_after, ccy)}</li>`
+        `<li class="${t.side}">${t.time} ${t.side.toUpperCase()} ${t.qty} @ ${formatPrice(t.price, ccy)} · cash ${formatPrice(t.cash_after, ccy)}${t.commission ? ` · fee ${formatPrice(t.commission, ccy)}` : ""}</li>`
     )
     .join("");
 

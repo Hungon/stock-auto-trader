@@ -5,20 +5,39 @@ from datetime import datetime
 
 import pandas as pd
 
+from stock_auto_trader.backtest.execution import FillParams, apply_slippage, calc_commission
 from stock_auto_trader.strategy.sma_crossover import Signal, sma_signal_series
 
 
 @dataclass(frozen=True)
 class Trade:
+    """Single simulated or exported fill with journal metadata."""
+
     timestamp: datetime
     side: str
     price: float
     qty: int
     cash_after: float
+    commission: float = 0.0
+    slippage_bps: float = 0.0
+    execution_mode: str = "same_close"
+    reason: str = ""
+    position_after: int = 0
+    equity_after: float = 0.0
+    realized_pnl: float | None = None
+    strategy_id: str = ""
+    market: str = "us"
+
+    @property
+    def notional(self) -> float:
+        """Fill notional in account currency."""
+        return self.price * self.qty
 
 
 @dataclass(frozen=True)
 class BacktestResult:
+    """Summary metrics and trade list for one backtest run."""
+
     symbol: str
     start: datetime
     end: datetime
@@ -36,6 +55,11 @@ class BacktestResult:
     trades: list[Trade]
     equity_curve: pd.Series
     strategy_id: str = "sma_crossover"
+    slippage_bps: float = 0.0
+    commission_per_trade: float = 0.0
+    commission_bps: float = 0.0
+    total_commission: float = 0.0
+    execution_mode: str = "next_open"
 
 
 def _buy_qty(price: float, cash: float, max_notional: float, max_shares: int) -> int:
@@ -65,7 +89,9 @@ def _round_trip_stats(trades: list[Trade]) -> tuple[float | None, float | None, 
             entry_price = t.price
             entry_qty = t.qty
         elif t.side == "sell" and entry_price is not None and entry_qty > 0:
-            pnl = (t.price - entry_price) * min(t.qty, entry_qty)
+            pnl = t.realized_pnl
+            if pnl is None:
+                pnl = (t.price - entry_price) * min(t.qty, entry_qty) - t.commission
             pnls.append(pnl)
             trips += 1
             if pnl > 0:
@@ -115,7 +141,10 @@ def build_backtest_result(
     equity_points: list[float],
     equity_index: list[datetime],
     strategy_id: str = "sma_crossover",
+    fill_params: FillParams | None = None,
+    total_commission: float = 0.0,
 ) -> BacktestResult:
+    fp = fill_params or FillParams()
     equity_curve = pd.Series(
         equity_points, index=pd.DatetimeIndex(equity_index), name="equity"
     ).ffill()
@@ -148,6 +177,9 @@ def build_backtest_result(
     if profit_factor == float("inf"):
         profit_factor = None
 
+    if total_commission == 0.0 and trades:
+        total_commission = sum(t.commission for t in trades)
+
     return BacktestResult(
         symbol=symbol,
         start=start,
@@ -166,6 +198,11 @@ def build_backtest_result(
         trades=trades,
         equity_curve=equity_curve,
         strategy_id=strategy_id,
+        slippage_bps=fp.slippage_bps,
+        commission_per_trade=fp.commission_per_trade,
+        commission_bps=fp.commission_bps,
+        total_commission=total_commission,
+        execution_mode=fp.execution_mode,
     )
 
 
@@ -178,8 +215,10 @@ def run_backtest(
     initial_cash: float,
     max_order_notional: float,
     max_position_shares: int,
+    fill_params: FillParams | None = None,
 ) -> BacktestResult:
-    """Simulate SMA crossover on historical bars (fills at bar close)."""
+    """Simulate SMA crossover on historical bars."""
+    fp = fill_params or FillParams()
     if bars.empty:
         raise ValueError("bars must not be empty")
 
@@ -192,43 +231,161 @@ def run_backtest(
     trades: list[Trade] = []
     equity_points: list[float] = []
     equity_index: list[datetime] = []
+    total_commission = 0.0
 
-    for ts, row in bars.iterrows():
+    pending_signal: Signal | None = None
+    bar_list = list(bars.iterrows())
+
+    for i, (ts, row) in enumerate(bar_list):
         price = float(row["close"])
-        signal = Signal(signals.loc[ts])
 
-        if signal == Signal.BUY and shares <= 0:
-            qty = _buy_qty(price, cash, max_order_notional, max_position_shares)
-            cost = qty * price
-            if qty > 0 and cost <= cash:
-                cash -= cost
+        if pending_signal is not None and shares <= 0 and pending_signal == Signal.BUY:
+            use_open = fp.execution_mode == "next_open"
+            base = float(row["open"]) if use_open else float(row["close"])
+            qty = _buy_qty(base, cash, max_order_notional, max_position_shares)
+            fill_price = apply_slippage(base, "buy", fp.slippage_bps)
+            cost = qty * fill_price
+            commission = calc_commission(
+                cost,
+                commission_per_trade=fp.commission_per_trade,
+                commission_bps=fp.commission_bps,
+            )
+            if qty > 0 and cost + commission <= cash:
+                cash -= cost + commission
+                total_commission += commission
                 shares += qty
-                entry_price = price
+                entry_price = fill_price
                 trades.append(
                     Trade(
                         timestamp=ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts,
                         side="buy",
-                        price=price,
+                        price=fill_price,
                         qty=qty,
                         cash_after=cash,
+                        commission=commission,
+                        slippage_bps=fp.slippage_bps,
+                        execution_mode=fp.execution_mode,
+                        reason="signal_entry",
+                        position_after=shares,
+                        equity_after=cash + shares * price,
+                        strategy_id="sma_crossover",
                     )
                 )
-
-        elif signal == Signal.SELL and shares > 0:
+            pending_signal = None
+        elif pending_signal == Signal.SELL and shares > 0:
+            use_open = fp.execution_mode == "next_open"
+            base = float(row["open"]) if use_open else float(row["close"])
             sell_qty = min(shares, max_position_shares)
-            proceeds = sell_qty * price
-            cash += proceeds
+            fill_price = apply_slippage(base, "sell", fp.slippage_bps)
+            proceeds = sell_qty * fill_price
+            commission = calc_commission(
+                proceeds,
+                commission_per_trade=fp.commission_per_trade,
+                commission_bps=fp.commission_bps,
+            )
+            cash += proceeds - commission
+            total_commission += commission
             shares -= sell_qty
-            entry_price = None
             trades.append(
                 Trade(
                     timestamp=ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts,
                     side="sell",
-                    price=price,
+                    price=fill_price,
                     qty=sell_qty,
                     cash_after=cash,
+                    commission=commission,
+                    slippage_bps=fp.slippage_bps,
+                    execution_mode=fp.execution_mode,
+                    reason="signal_exit",
+                    position_after=shares,
+                    equity_after=cash + shares * price,
+                    realized_pnl=(
+                        (fill_price - entry_price) * sell_qty - commission
+                        if entry_price
+                        else None
+                    ),
+                    strategy_id="sma_crossover",
                 )
             )
+            entry_price = None
+            pending_signal = None
+
+        signal = Signal(signals.loc[ts])
+
+        if fp.execution_mode == "same_close":
+            if signal == Signal.BUY and shares <= 0:
+                qty = _buy_qty(price, cash, max_order_notional, max_position_shares)
+                fill_price = apply_slippage(price, "buy", fp.slippage_bps)
+                cost = qty * fill_price
+                commission = calc_commission(
+                    cost,
+                    commission_per_trade=fp.commission_per_trade,
+                    commission_bps=fp.commission_bps,
+                )
+                if qty > 0 and cost + commission <= cash:
+                    cash -= cost + commission
+                    total_commission += commission
+                    shares += qty
+                    entry_price = fill_price
+                    trades.append(
+                        Trade(
+                            timestamp=ts.to_pydatetime()
+                            if hasattr(ts, "to_pydatetime")
+                            else ts,
+                            side="buy",
+                            price=fill_price,
+                            qty=qty,
+                            cash_after=cash,
+                            commission=commission,
+                            slippage_bps=fp.slippage_bps,
+                            execution_mode=fp.execution_mode,
+                            reason="signal_entry",
+                            position_after=shares,
+                            equity_after=cash + shares * price,
+                            strategy_id="sma_crossover",
+                        )
+                    )
+            elif signal == Signal.SELL and shares > 0:
+                sell_qty = min(shares, max_position_shares)
+                fill_price = apply_slippage(price, "sell", fp.slippage_bps)
+                proceeds = sell_qty * fill_price
+                commission = calc_commission(
+                    proceeds,
+                    commission_per_trade=fp.commission_per_trade,
+                    commission_bps=fp.commission_bps,
+                )
+                cash += proceeds - commission
+                total_commission += commission
+                shares -= sell_qty
+                trades.append(
+                    Trade(
+                        timestamp=ts.to_pydatetime()
+                        if hasattr(ts, "to_pydatetime")
+                        else ts,
+                        side="sell",
+                        price=fill_price,
+                        qty=sell_qty,
+                        cash_after=cash,
+                        commission=commission,
+                        slippage_bps=fp.slippage_bps,
+                        execution_mode=fp.execution_mode,
+                        reason="signal_exit",
+                        position_after=shares,
+                        equity_after=cash + shares * price,
+                        realized_pnl=(
+                            (fill_price - entry_price) * sell_qty - commission
+                            if entry_price
+                            else None
+                        ),
+                        strategy_id="sma_crossover",
+                    )
+                )
+                entry_price = None
+        elif i < len(bar_list) - 1:
+            if signal == Signal.BUY and shares <= 0:
+                pending_signal = Signal.BUY
+            elif signal == Signal.SELL and shares > 0:
+                pending_signal = Signal.SELL
 
         equity_points.append(cash + shares * price)
         equity_index.append(
@@ -243,4 +400,6 @@ def run_backtest(
         equity_points=equity_points,
         equity_index=equity_index,
         strategy_id="sma_crossover",
+        fill_params=fp,
+        total_commission=total_commission,
     )
