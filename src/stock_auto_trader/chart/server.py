@@ -34,6 +34,7 @@ from stock_auto_trader.currency import (
 )
 from stock_auto_trader.data.fetch import fetch_bars_between, fetch_latest_tick, resolve_ticker
 from stock_auto_trader.markets.symbols import JAPAN_STOCKS, US_STOCKS
+from stock_auto_trader.opportunity.scan import scan_opportunities
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 STATIC_DIR = PROJECT_ROOT / "web" / "static"
@@ -330,6 +331,40 @@ def create_app(env_path: Path | None = None) -> FastAPI:
     def api_strategies() -> dict:
         return {"strategies": list_strategies()}
 
+    @app.get("/api/opportunities")
+    def api_opportunities(
+        market: str | None = Query(None, description="us or jp"),
+        symbols: str | None = Query(
+            None, description="Optional comma-separated tickers to scan"
+        ),
+        start: str | None = Query(None, description="YYYY-MM-DD"),
+        end: str | None = Query(None, description="YYYY-MM-DD"),
+    ) -> dict:
+        mkt = (market or "jp").strip().lower()
+        if mkt not in {"jp", "us"}:
+            mkt = "jp"
+        symbol_list = (
+            [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+        )
+        try:
+            start_date = date.fromisoformat(start) if start else None
+            end_date = date.fromisoformat(end) if end else None
+        except ValueError as exc:
+            raise HTTPException(400, f"Invalid date: {exc}") from exc
+        if start_date and end_date and start_date >= end_date:
+            raise HTTPException(400, "start must be before end")
+        try:
+            return scan_opportunities(
+                settings,
+                market=mkt,
+                symbols=symbol_list,
+                start=start_date,
+                end=end_date,
+                demo_mode=demo_mode,
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"Opportunity scan failed: {exc}") from exc
+
     @app.get("/api/backtest/scan")
     def api_backtest_scan(
         symbols: str = Query(..., description="Comma-separated tickers"),
@@ -492,6 +527,13 @@ def create_app(env_path: Path | None = None) -> FastAPI:
         page = STATIC_DIR / "backtest.html"
         if not page.exists():
             raise HTTPException(500, "Backtest UI missing; reinstall project.")
+        return FileResponse(page)
+
+    @app.get("/opportunity")
+    def opportunity_page() -> FileResponse:
+        page = STATIC_DIR / "opportunity.html"
+        if not page.exists():
+            raise HTTPException(500, "Opportunity UI missing; reinstall project.")
         return FileResponse(page)
 
     if STATIC_DIR.exists():

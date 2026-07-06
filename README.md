@@ -9,6 +9,7 @@ Python app for **US stock auto-trading on Alpaca** (SMA crossover) plus a **loca
 - **Live trading (US only):** SMA crossover on Alpaca paper or live accounts
 - **Japan (TSE):** OHLCV bars via [yfinance](https://github.com/ranaroussi/yfinance) (Yahoo Finance) — chart and backtest only (no orders; **delayed data, not for production**)
 - **Web UI:** TradingView-style chart + dedicated backtest page ([Lightweight Charts](https://www.tradingview.com/lightweight-charts/))
+- **Opportunity Finder:** deterministic multi-signal scanner that ranks a market's symbols by an opportunity score and classifies setups (breakout, pullback, oversold, etc.)
 - **Six backtest strategies** with compare-all and multi-symbol scan
 - **USD / JPY** display with live or manual FX
 - Risk limits, kill switch, and `LIVE_TRADING_CONFIRMED` guard for live orders
@@ -64,10 +65,11 @@ stock-trader chart
 ```
 
 
-| URL                                                              | Purpose                                                        |
-| ---------------------------------------------------------------- | -------------------------------------------------------------- |
-| [http://127.0.0.1:8765/](http://127.0.0.1:8765/)                 | Chart — candlesticks, SMAs, volume, live refresh               |
-| [http://127.0.0.1:8765/backtest](http://127.0.0.1:8765/backtest) | Backtest — pick strategy, **Compare all**, or **Scan presets** |
+| URL                                                                    | Purpose                                                        |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [http://127.0.0.1:8765/](http://127.0.0.1:8765/)                       | Chart — candlesticks, SMAs, volume, live refresh               |
+| [http://127.0.0.1:8765/backtest](http://127.0.0.1:8765/backtest)       | Backtest — pick strategy, **Compare all**, or **Scan presets** |
+| [http://127.0.0.1:8765/opportunity](http://127.0.0.1:8765/opportunity) | Opportunity Finder — scan & rank a market's symbols by signal  |
 
 
 Toolbar: market (Japan / US), symbol, date range, currency. Default end date is **yesterday** (today’s bar is often incomplete on Yahoo).
@@ -151,6 +153,45 @@ List strategy IDs: `GET http://127.0.0.1:8765/api/strategies` (with chart server
 stock-trader kill-switch --enable
 stock-trader kill-switch --disable
 ```
+
+## Opportunity Finder
+
+The **Opportunity Finder** ([http://127.0.0.1:8765/opportunity](http://127.0.0.1:8765/opportunity)) scans a market's preset symbol universe and ranks each stock by a **deterministic opportunity score** (0–100). It answers "which stocks look interesting right now?", complementing the Chart ("what is this stock doing?") and Backtest ("did this strategy work?") pages.
+
+It is **formula-based, not AI** — every score is a pure function of recent price/volume, so results are reproducible. It reuses the same indicator engine as the backtester (`strategy/indicators.py`), so the scanner and backtests stay consistent.
+
+### Signals & scoring
+
+For the latest bar of each symbol it computes price change %, volume ratio (vs 20-day average), RSI(14), SMA20/50/200, and distance from the recent 20-day high/low. These feed four sub-scores blended into the headline score:
+
+```text
+opportunity_score =
+  momentum_score  * 0.35 +
+  volume_score    * 0.25 +
+  technical_score * 0.25 +
+  setup_score     * 0.15
+```
+
+| Score  | Meaning            |
+| ------ | ------------------ |
+| 80–100 | Strong opportunity |
+| 65–79  | Good watch         |
+| 50–64  | Developing setup   |
+| 35–49  | Weak / mixed       |
+| 0–34   | Avoid / bearish    |
+
+### Setup types
+
+Each symbol is classified into one setup type: **Momentum Breakout**, **Pullback Setup**, **Oversold Rebound Watch**, **High Volume Alert**, **Bearish Breakdown**, or **Neutral / Mixed**. The UI shows summary cards (market bias, breakout/high-volume/bearish counts, top opportunity), filter chips per setup type, a ranked table, and a detail panel with a score breakdown, plain-language explanation, "watch next" list, and a **strategy fit** preview (strong / possible / weak) against the backtest strategies. **Open Chart** and **Run Backtest** buttons deep-link to the other pages with the symbol pre-filled.
+
+### API
+
+```http
+GET /api/opportunities?market=jp
+GET /api/opportunities?market=us&symbols=AAPL,MSFT,NVDA
+```
+
+Optional `start` / `end` (YYYY-MM-DD) override the default ~2-year window. Response contains `summary`, a ranked `signals` array, and per-symbol `errors`. Japan symbols use yfinance (no keys); US symbols use Alpaca (or synthetic demo bars when running without API keys).
 
 ## US vs Japan
 

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Auto Trader — Opportunity</title>
+    <link rel="stylesheet" href="/static/styles.css?v=6" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo">SAT</span>
+        <span class="title">Opportunity Finder</span>
+      </div>
+      <nav class="nav">
+        <a href="/">Chart</a>
+        <a href="/backtest">Backtest</a>
+        <a href="/opportunity" class="active">Opportunity</a>
+      </nav>
+      <div class="controls">
+        <select id="market" title="Market">
+          <option value="jp">Japan (TSE)</option>
+          <option value="us">United States</option>
+        </select>
+        <select id="universe" title="Universe">
+          <option value="presets">Universe: Presets</option>
+        </select>
+        <button id="scan" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <section class="summary-cards" id="summary-cards"></section>
+
+    <main class="layout layout-opportunity">
+      <section class="scanner-panel">
+        <div class="filter-bar" id="filter-bar"></div>
+        <div class="opp-table-wrap">
+          <table class="opp-table" id="opp-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Symbol</th>
+                <th>Name</th>
+                <th>Price</th>
+                <th>Chg%</th>
+                <th>Vol×</th>
+                <th>RSI</th>
+                <th>Type</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <ul id="scan-errors" class="compare-errors"></ul>
+      </section>
+
+      <aside class="sidebar">
+        <section class="card" id="detail-empty">
+          <h2>Detail</h2>
+          <p class="strategy-desc">Select a row to see the opportunity breakdown.</p>
+        </section>
+        <section class="card hidden" id="detail-panel">
+          <h2 id="detail-title">—</h2>
+          <div class="detail-score" id="detail-score"></div>
+          <dl id="detail-signals"></dl>
+          <h3 class="detail-sub">Score breakdown</h3>
+          <dl id="detail-breakdown"></dl>
+          <h3 class="detail-sub">Why</h3>
+          <ul id="detail-why" class="detail-list"></ul>
+          <h3 class="detail-sub">Watch next</h3>
+          <ul id="detail-watch" class="detail-list"></ul>
+          <h3 class="detail-sub">Strategy fit</h3>
+          <ul id="detail-fit" class="detail-list fit-list"></ul>
+          <div class="detail-actions">
+            <a id="open-chart" class="action-btn" href="#">Open Chart</a>
+            <a id="run-backtest" class="action-btn action-secondary" href="#">Run Backtest</a>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <p id="status" class="status">Pick a market and press Refresh to scan.</p>
+    <script src="/static/opportunity.js?v=1"></script>
+  </body>
+</html>
