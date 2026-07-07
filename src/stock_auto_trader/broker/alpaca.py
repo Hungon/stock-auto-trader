@@ -14,8 +14,13 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
-from stock_auto_trader.config import Settings
+from stock_auto_trader.config import DemoModeError, Settings, demo_build_enabled
 from stock_auto_trader.risk.market_hours import MarketClockInfo
+
+_DEMO_ORDER_MESSAGE = (
+    "Live/paper order submission is disabled in the demo build. "
+    "Use the private 'pro' build (DEMO_BUILD=false) for real order routing."
+)
 
 
 def _parse_timeframe(value: str) -> TimeFrame:
@@ -100,6 +105,8 @@ class AlpacaBroker:
         side: OrderSide,
         qty: int,
     ) -> str:
+        if demo_build_enabled():
+            raise DemoModeError(_DEMO_ORDER_MESSAGE)
         if qty <= 0:
             raise ValueError("Order quantity must be positive")
 
@@ -136,10 +143,14 @@ class AlpacaBroker:
 
     def cancel_all_orders(self) -> None:
         """Cancel all open orders (used by DAILY_LOSS/DRAWDOWN liquidate action)."""
+        if demo_build_enabled():
+            raise DemoModeError(_DEMO_ORDER_MESSAGE)
         self._trading.cancel_orders()
 
     def close_all_positions(self) -> None:
         """Liquidate all positions and cancel pending orders."""
+        if demo_build_enabled():
+            raise DemoModeError(_DEMO_ORDER_MESSAGE)
         self._trading.close_all_positions(cancel_orders=True)
 
     def fetch_latest_tick(self, symbol: str) -> dict:

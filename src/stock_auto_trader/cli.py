@@ -16,7 +16,7 @@ from stock_auto_trader.backtest.run import (
 )
 from stock_auto_trader.backtest.walk_forward import run_walk_forward
 from stock_auto_trader.broker.alpaca import AlpacaBroker
-from stock_auto_trader.config import load_settings
+from stock_auto_trader.config import demo_build_enabled, load_settings
 from stock_auto_trader.config_validation import validate_settings
 from stock_auto_trader.data.fetch import fetch_bars_between, resolve_ticker
 from stock_auto_trader.engine import TradingEngine
@@ -77,6 +77,8 @@ def status(
     table = Table(title="Stock Auto Trader")
     table.add_column("Field")
     table.add_column("Value")
+    if demo_build_enabled():
+        table.add_row("Build", "DEMO (live/paper orders disabled)")
     table.add_row("Market", "Japan (Yahoo)" if market == "jp" else "US (Alpaca)")
     table.add_row("Symbol", ticker)
     if alias_note:
@@ -111,6 +113,10 @@ def run_once(
     """Evaluate strategy once and place orders if rules allow."""
     settings, _ = _load_and_validate(env_file)
     _setup_logging(verbose, settings)
+    if demo_build_enabled():
+        console.print(
+            "[yellow]DEMO build: signals are evaluated but no orders are submitted.[/yellow]"
+        )
     broker = AlpacaBroker(settings)
     engine = TradingEngine(settings, broker)
     outcome = engine.run_once()
@@ -132,6 +138,11 @@ def run(
         f"Starting trader for {settings.symbol} "
         f"({settings.trading_mode}, poll={settings.poll_interval_seconds}s)"
     )
+    if demo_build_enabled():
+        console.print(
+            "[yellow]DEMO build: order submission is disabled; running signal-only "
+            "(dry run). See the private 'pro' build for live trading.[/yellow]"
+        )
     if settings.is_live and not settings.orders_enabled:
         console.print(
             "[yellow]Live mode: orders are DRY RUN until LIVE_TRADING_CONFIRMED=yes[/yellow]"
