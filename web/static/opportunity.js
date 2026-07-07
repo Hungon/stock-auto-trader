@@ -1,35 +1,52 @@
 const marketSelect = document.getElementById("market");
+const customSymbolsInput = document.getElementById("custom-symbols");
 const scanBtn = document.getElementById("scan");
 const statusEl = document.getElementById("status");
 const summaryCardsEl = document.getElementById("summary-cards");
 const filterBarEl = document.getElementById("filter-bar");
-const tableBody = document.querySelector("#opp-table tbody");
+const tableEl = document.getElementById("opp-table");
+const tableBody = tableEl.querySelector("tbody");
 const scanErrorsEl = document.getElementById("scan-errors");
 const detailEmptyEl = document.getElementById("detail-empty");
 const detailPanelEl = document.getElementById("detail-panel");
 
 const TYPE_CLASS = {
   "Momentum Breakout": "type-breakout",
+  "New High Candidate": "type-newhigh",
+  "Trend Continuation": "type-trend",
+  "MA Crossover Candidate": "type-cross",
   "Pullback Setup": "type-pullback",
-  "Oversold Rebound Watch": "type-oversold",
   "High Volume Alert": "type-volume",
-  "Bearish Breakdown": "type-bearish",
+  "RSI Reversal Candidate": "type-reversal",
+  "Momentum Watch": "type-momentum",
+  "Oversold Rebound Watch": "type-oversold",
   "Neutral / Mixed": "type-neutral",
+  "Weakness / Short-Watch": "type-weak",
+  "Bearish Breakdown": "type-bearish",
 };
 
-const FILTERS = [
-  { id: "all", label: "All" },
-  { id: "Momentum Breakout", label: "Breakout" },
-  { id: "Pullback Setup", label: "Pullback" },
-  { id: "Oversold Rebound Watch", label: "Oversold" },
-  { id: "High Volume Alert", label: "High Volume" },
-  { id: "Bearish Breakdown", label: "Bearish" },
-];
+const TYPE_LABEL = {
+  "Momentum Breakout": "Breakout",
+  "New High Candidate": "New High",
+  "Trend Continuation": "Trend",
+  "MA Crossover Candidate": "MA Cross",
+  "Pullback Setup": "Pullback",
+  "High Volume Alert": "High Vol",
+  "RSI Reversal Candidate": "RSI Rev",
+  "Momentum Watch": "Momentum",
+  "Oversold Rebound Watch": "Oversold",
+  "Neutral / Mixed": "Neutral",
+  "Weakness / Short-Watch": "Weak",
+  "Bearish Breakdown": "Bearish",
+};
 
 let allSignals = [];
+let setupTypes = [];
 let activeFilter = "all";
 let currentMarket = "jp";
 let selectedSymbol = null;
+let sortKey = "rank";
+let sortDir = "asc";
 
 function fmtNum(value, digits = 2) {
   if (value == null || Number.isNaN(value)) return "—";
@@ -86,15 +103,30 @@ function renderSummary(summary) {
     .join("");
 }
 
+function typesInResults() {
+  // Preserve the server's canonical order, keeping only types actually present.
+  const present = new Set(allSignals.map((s) => s.opportunity_type));
+  const ordered = (setupTypes.length ? setupTypes : [...present]).filter((t) =>
+    present.has(t)
+  );
+  return ordered;
+}
+
 function renderFilters() {
-  filterBarEl.innerHTML = FILTERS.map((f) => {
-    const count =
-      f.id === "all"
-        ? allSignals.length
-        : allSignals.filter((s) => s.opportunity_type === f.id).length;
-    const active = f.id === activeFilter ? " active" : "";
-    return `<button type="button" class="filter-chip${active}" data-filter="${f.id}">${f.label} <span class="chip-count">${count}</span></button>`;
-  }).join("");
+  const chips = [{ id: "all", label: "All", count: allSignals.length }];
+  typesInResults().forEach((t) => {
+    chips.push({
+      id: t,
+      label: TYPE_LABEL[t] || t,
+      count: allSignals.filter((s) => s.opportunity_type === t).length,
+    });
+  });
+  filterBarEl.innerHTML = chips
+    .map((c) => {
+      const active = c.id === activeFilter ? " active" : "";
+      return `<button type="button" class="filter-chip${active}" data-filter="${c.id}">${c.label} <span class="chip-count">${c.count}</span></button>`;
+    })
+    .join("");
   filterBarEl.querySelectorAll(".filter-chip").forEach((btn) => {
     btn.addEventListener("click", () => {
       activeFilter = btn.dataset.filter;
@@ -105,11 +137,43 @@ function renderFilters() {
 }
 
 function visibleSignals() {
-  if (activeFilter === "all") return allSignals;
-  return allSignals.filter((s) => s.opportunity_type === activeFilter);
+  let rows =
+    activeFilter === "all"
+      ? allSignals.slice()
+      : allSignals.filter((s) => s.opportunity_type === activeFilter);
+
+  const dir = sortDir === "asc" ? 1 : -1;
+  const numeric = sortKey !== "symbol" && sortKey !== "name" && sortKey !== "opportunity_type";
+  rows.sort((a, b) => {
+    let av = a[sortKey];
+    let bv = b[sortKey];
+    if (numeric) {
+      // Null/undefined numeric values always sort to the bottom.
+      const an = av == null || Number.isNaN(av);
+      const bn = bv == null || Number.isNaN(bv);
+      if (an && bn) return 0;
+      if (an) return 1;
+      if (bn) return -1;
+      return (av - bv) * dir;
+    }
+    av = (av || "").toString().toLowerCase();
+    bv = (bv || "").toString().toLowerCase();
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+  return rows;
+}
+
+function renderSortIndicators() {
+  tableEl.querySelectorAll("th.sortable").forEach((th) => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === sortKey) {
+      th.classList.add(sortDir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
 }
 
 function renderTable() {
+  renderSortIndicators();
   const rows = visibleSignals();
   if (!rows.length) {
     tableBody.innerHTML = `<tr><td colspan="9" class="empty-row">No matching opportunities.</td></tr>`;
@@ -198,12 +262,30 @@ function renderDl(el, rows) {
   el.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 }
 
+function setupSortHandlers() {
+  tableEl.querySelectorAll("th.sortable").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        // Numeric columns default to descending (best first); text to ascending.
+        sortDir = th.dataset.type === "num" && key !== "rank" ? "desc" : "asc";
+      }
+      renderTable();
+    });
+  });
+}
+
 async function runScan() {
   currentMarket = marketSelect.value || "jp";
-  statusEl.textContent = "Scanning market (this fetches bars per symbol)…";
+  const custom = (customSymbolsInput.value || "").trim();
+  statusEl.textContent = "Scanning (fetching bars per symbol)…";
   scanBtn.disabled = true;
   try {
     const params = new URLSearchParams({ market: currentMarket });
+    if (custom) params.set("symbols", custom);
     const res = await fetch(`/api/opportunities?${params}`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -211,7 +293,11 @@ async function runScan() {
       return;
     }
     allSignals = body.signals || [];
+    setupTypes = body.setup_types || [];
     selectedSymbol = null;
+    activeFilter = "all";
+    sortKey = "rank";
+    sortDir = "asc";
     detailEmptyEl.classList.remove("hidden");
     detailPanelEl.classList.add("hidden");
     renderSummary(body.summary);
@@ -232,5 +318,9 @@ async function runScan() {
 
 scanBtn.addEventListener("click", runScan);
 marketSelect.addEventListener("change", runScan);
+customSymbolsInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runScan();
+});
 
+setupSortHandlers();
 runScan();

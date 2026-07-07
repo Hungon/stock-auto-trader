@@ -563,6 +563,56 @@ body {
   color: var(--muted);
 }
 
+.type-newhigh {
+  background: rgba(38, 166, 154, 0.2);
+  color: #80cbc4;
+}
+
+.type-trend {
+  background: rgba(0, 188, 212, 0.2);
+  color: #4dd0e1;
+}
+
+.type-cross {
+  background: rgba(41, 98, 255, 0.2);
+  color: #7ea3ff;
+}
+
+.type-momentum {
+  background: rgba(100, 181, 246, 0.18);
+  color: #90caf9;
+}
+
+.type-reversal {
+  background: rgba(171, 71, 188, 0.2);
+  color: #ce93d8;
+}
+
+.type-weak {
+  background: rgba(255, 112, 67, 0.2);
+  color: #ffab91;
+}
+
+/* Sortable table headers */
+.opp-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.opp-table th.sortable:hover {
+  color: var(--text);
+}
+
+.opp-table th.sortable.sort-asc::after {
+  content: " \25B2";
+  font-size: 9px;
+}
+
+.opp-table th.sortable.sort-desc::after {
+  content: " \25BC";
+  font-size: 9px;
+}
+
 .score-pill {
   display: inline-block;
   min-width: 34px;

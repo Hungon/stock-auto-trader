@@ -3,7 +3,9 @@ import math
 import pandas as pd
 
 from stock_auto_trader.opportunity.engine import (
+    SETUP_TYPES,
     compute_opportunity_signal,
+    compute_opportunity_signal_at_index,
     signal_to_dict,
 )
 
@@ -44,8 +46,11 @@ def _downtrend_closes(n=80, start=200.0):
 
 
 def test_neutral_flat_market():
-    closes = [100 + (0.2 if i % 2 else -0.2) for i in range(80)]
-    closes[-1] = 99.6  # end just below the moving averages -> not a pullback setup
+    # Mild early drift then quiet chop; ends just below SMA20 with SMA20 ~= SMA50
+    # and mid RSI, so no directional setup matches.
+    closes = [100 + i * 0.02 for i in range(40)]
+    closes += [100.8 + (0.15 if i % 2 else -0.15) for i in range(40)]
+    closes[-1] = 100.55
     sig = compute_opportunity_signal("TEST", "Test", "us", _bars(closes))
     assert sig.opportunity_type == "Neutral / Mixed"
     assert 30 <= sig.opportunity_score <= 70
@@ -99,6 +104,46 @@ def test_momentum_breakout():
     )
     assert sig.opportunity_type == "Momentum Breakout"
     assert sig.opportunity_score >= 65
+
+
+def test_new_high_candidate():
+    sig = compute_opportunity_signal("TEST", "Test", "us", _bars(_uptrend_closes()))
+    assert sig.opportunity_type == "New High Candidate"
+    assert sig.sma20 > sig.sma50
+
+
+def test_trend_continuation():
+    up = _uptrend_closes(70)
+    up += [round(up[-1] * (1 - 0.005 * i), 2) for i in range(1, 6)]  # modest pullback
+    sig = compute_opportunity_signal("TEST", "Test", "us", _bars(up))
+    assert sig.opportunity_type == "Trend Continuation"
+    assert sig.dist_from_high20_pct is not None and sig.dist_from_high20_pct < 0
+
+
+def test_weakness_short_watch():
+    sig = compute_opportunity_signal("TEST", "Test", "us", _bars(_downtrend_closes()))
+    assert sig.opportunity_type == "Weakness / Short-Watch"
+    assert sig.rsi is not None and sig.rsi < 45
+
+
+def test_at_index_matches_full_compute():
+    up = _uptrend_closes()
+    bars = _bars(up)
+    full = compute_opportunity_signal("TEST", "Test", "us", bars)
+    last = compute_opportunity_signal_at_index("TEST", "Test", "us", bars, len(up) - 1)
+    neg = compute_opportunity_signal_at_index("TEST", "Test", "us", bars, -1)
+    assert last.opportunity_type == full.opportunity_type
+    assert last.opportunity_score == full.opportunity_score
+    assert neg.opportunity_score == full.opportunity_score
+    # An earlier index should compute without error and may differ.
+    early = compute_opportunity_signal_at_index("TEST", "Test", "us", bars, 40)
+    assert early.opportunity_score is not None
+
+
+def test_setup_types_registry():
+    assert len(SETUP_TYPES) == len(set(SETUP_TYPES))
+    for key in ("Momentum Breakout", "Neutral / Mixed", "Bearish Breakdown"):
+        assert key in SETUP_TYPES
 
 
 def test_short_series_is_safe():

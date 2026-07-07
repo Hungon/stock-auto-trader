@@ -34,12 +34,34 @@ _WEIGHTS = {
 # Base setup-quality score per classified opportunity type.
 _SETUP_BASE = {
     "Momentum Breakout": 85.0,
+    "New High Candidate": 78.0,
+    "Trend Continuation": 75.0,
+    "MA Crossover Candidate": 72.0,
     "Pullback Setup": 70.0,
     "High Volume Alert": 65.0,
+    "RSI Reversal Candidate": 62.0,
+    "Momentum Watch": 60.0,
     "Oversold Rebound Watch": 60.0,
     "Neutral / Mixed": 45.0,
+    "Weakness / Short-Watch": 25.0,
     "Bearish Breakdown": 20.0,
 }
+
+# Display order for setup types (used to order filter chips in the UI).
+SETUP_TYPES = [
+    "Momentum Breakout",
+    "New High Candidate",
+    "Trend Continuation",
+    "MA Crossover Candidate",
+    "Pullback Setup",
+    "High Volume Alert",
+    "RSI Reversal Candidate",
+    "Momentum Watch",
+    "Oversold Rebound Watch",
+    "Neutral / Mixed",
+    "Weakness / Short-Watch",
+    "Bearish Breakdown",
+]
 
 
 @dataclass
@@ -140,17 +162,37 @@ def _technical_score(
     return round(_clamp(score, 0.0, 100.0), 1)
 
 
-def _classify(
-    close: float,
-    prior_high20: float | None,
-    low20: float | None,
-    sma20: float | None,
-    sma50: float | None,
-    rsi_val: float | None,
-    volume_ratio: float | None,
-) -> str:
-    vr = volume_ratio if volume_ratio is not None else 1.0
+def _classify(ctx: dict) -> str:
+    """Classify the latest bar into a single setup type (first match wins).
 
+    Ordered from strongest/most-specific signal to weakest so the highest-quality
+    label is returned when several conditions overlap.
+    """
+    close = ctx["close"]
+    prior_high20 = ctx["prior_high20"]
+    high20 = ctx["high20"]
+    low20 = ctx["low20"]
+    sma20 = ctx["sma20"]
+    sma20_prev = ctx["sma20_prev"]
+    sma50 = ctx["sma50"]
+    sma200 = ctx["sma200"]
+    rsi_val = ctx["rsi"]
+    rsi_prev = ctx["rsi_prev"]
+    price_change_pct = ctx["price_change_pct"]
+    vr = ctx["volume_ratio"] if ctx["volume_ratio"] is not None else 1.0
+
+    above_sma200 = sma200 is None or close > sma200
+    uptrend_stack = (
+        sma20 is not None and sma50 is not None and close > sma20 > sma50
+    )
+    downtrend_stack = (
+        sma20 is not None and sma50 is not None and close < sma20 < sma50
+    )
+    sma20_rising = (
+        sma20 is not None and sma20_prev is not None and sma20 > sma20_prev
+    )
+
+    # Bearish: fresh 20-day low on heavy volume with weak RSI.
     if (
         low20 is not None
         and rsi_val is not None
@@ -160,6 +202,7 @@ def _classify(
     ):
         return "Bearish Breakdown"
 
+    # Momentum breakout: new high above prior 20-day high, volume + RSI confirm.
     if (
         prior_high20 is not None
         and sma20 is not None
@@ -171,6 +214,18 @@ def _classify(
     ):
         return "Momentum Breakout"
 
+    # At/near the 20-day high in a genuine uptrend, but without the breakout gate.
+    if (
+        high20 is not None
+        and sma20 is not None
+        and sma50 is not None
+        and close >= high20 * 0.99
+        and close > sma20
+        and sma20 >= sma50 * 1.005
+    ):
+        return "New High Candidate"
+
+    # Deeply oversold and near recent low with rising volume — bounce watch.
     if (
         rsi_val is not None
         and low20 is not None
@@ -180,9 +235,40 @@ def _classify(
     ):
         return "Oversold Rebound Watch"
 
+    # Early reversal: low-but-recovering RSI turning up while above the long trend.
+    if (
+        rsi_val is not None
+        and rsi_prev is not None
+        and 35.0 <= rsi_val < 45.0
+        and rsi_val > rsi_prev
+        and above_sma200
+    ):
+        return "RSI Reversal Candidate"
+
+    # Unusual attention: volume well above average, no cleaner setup matched.
     if vr > 2.0:
         return "High Volume Alert"
 
+    # SMA20 and SMA50 nearly touching and SMA20 rising — golden-cross candidate.
+    if (
+        sma20 is not None
+        and sma50 is not None
+        and sma20_rising
+        and abs(sma20 / sma50 - 1.0) < 0.01
+        and sma20 >= sma50
+    ):
+        return "MA Crossover Candidate"
+
+    # Established, healthy uptrend continuing (stacked MAs, mid-high RSI).
+    if (
+        uptrend_stack
+        and above_sma200
+        and rsi_val is not None
+        and 50.0 <= rsi_val <= 72.0
+    ):
+        return "Trend Continuation"
+
+    # Pullback toward SMA20 support inside a broader uptrend.
     if (
         sma20 is not None
         and sma50 is not None
@@ -192,6 +278,24 @@ def _classify(
         and 40.0 <= rsi_val <= 55.0
     ):
         return "Pullback Setup"
+
+    # Softer positive momentum: up on the day and above SMA20 with mid RSI.
+    if (
+        sma20 is not None
+        and rsi_val is not None
+        and price_change_pct > 0.0
+        and close > sma20
+        and 50.0 <= rsi_val < 70.0
+    ):
+        return "Momentum Watch"
+
+    # Downtrend bias without a fresh breakdown — short/avoid watch.
+    if (
+        downtrend_stack
+        and rsi_val is not None
+        and rsi_val < 45.0
+    ):
+        return "Weakness / Short-Watch"
 
     return "Neutral / Mixed"
 
@@ -357,10 +461,14 @@ def compute_opportunity_signal(
         else 0.0
     )
 
-    sma20 = _last(sma(close_series, 20))
+    sma20_series = sma(close_series, 20)
+    rsi_series = rsi(close_series, 14)
+    sma20 = _last(sma20_series)
+    sma20_prev = _f(sma20_series.iloc[-2]) if len(sma20_series) >= 2 else None
     sma50 = _last(sma(close_series, 50))
     sma200 = _last(sma(close_series, 200))
-    rsi_val = _last(rsi(close_series, 14))
+    rsi_val = _last(rsi_series)
+    rsi_prev = _f(rsi_series.iloc[-2]) if len(rsi_series) >= 2 else None
 
     vol = _f(vol_series.iloc[-1])
     vol_avg20 = _last(average_volume(vol_series, 20))
@@ -388,7 +496,20 @@ def compute_opportunity_signal(
         close, sma20, sma50, sma200, rsi_val, dist_from_high20_pct
     )
     opportunity_type = _classify(
-        close, prior_high20, low20, sma20, sma50, rsi_val, volume_ratio
+        {
+            "close": close,
+            "prior_high20": prior_high20,
+            "high20": high20,
+            "low20": low20,
+            "sma20": sma20,
+            "sma20_prev": sma20_prev,
+            "sma50": sma50,
+            "sma200": sma200,
+            "rsi": rsi_val,
+            "rsi_prev": rsi_prev,
+            "price_change_pct": price_change_pct,
+            "volume_ratio": volume_ratio,
+        }
     )
     setup_score = _SETUP_BASE.get(opportunity_type, 45.0)
 
@@ -443,6 +564,30 @@ def compute_opportunity_signal(
         watch_next=_watch_next(sig_ctx),
         strategy_fit=_strategy_fit(sig_ctx, opportunity_type),
     )
+
+
+def compute_opportunity_signal_at_index(
+    symbol: str,
+    name: str,
+    market: str,
+    bars: pd.DataFrame,
+    index: int,
+) -> OpportunitySignal:
+    """Compute the opportunity signal as it would have looked at bar `index`.
+
+    Slices the history up to and including `index` and reuses the same engine, so
+    a historical scan stays consistent with the live scanner (shared signal
+    engine). `index` may be negative (Python slice semantics).
+    """
+    if bars is None or bars.empty:
+        raise ValueError("No bars provided")
+    b = bars.sort_index()
+    n = len(b)
+    if index < 0:
+        index = n + index
+    if index < 0 or index >= n:
+        raise IndexError(f"index {index} out of range for {n} bars")
+    return compute_opportunity_signal(symbol, name, market, b.iloc[: index + 1])
 
 
 def signal_to_dict(sig: OpportunitySignal) -> dict:
