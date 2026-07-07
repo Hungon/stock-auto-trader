@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stock Auto Trader — Opportunity</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6" />
+    <link rel="stylesheet" href="/static/styles.css?v=7" />
   </head>
   <body>
     <header class="toolbar">
@@ -22,9 +22,13 @@
           <option value="jp">Japan (TSE)</option>
           <option value="us">United States</option>
         </select>
-        <select id="universe" title="Universe">
-          <option value="presets">Universe: Presets</option>
-        </select>
+        <input
+          id="custom-symbols"
+          type="text"
+          placeholder="Custom symbols (e.g. 7203.T,6758.T)"
+          title="Optional comma-separated symbols to scan instead of presets"
+          style="width: 260px"
+        />
         <button id="scan" type="button">Refresh</button>
       </div>
     </header>
@@ -38,15 +42,15 @@
           <table class="opp-table" id="opp-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Symbol</th>
-                <th>Name</th>
-                <th>Price</th>
-                <th>Chg%</th>
-                <th>Vol×</th>
-                <th>RSI</th>
-                <th>Type</th>
-                <th>Score</th>
+                <th class="sortable" data-sort="rank" data-type="num">#</th>
+                <th class="sortable" data-sort="symbol" data-type="str">Symbol</th>
+                <th class="sortable" data-sort="name" data-type="str">Name</th>
+                <th class="sortable" data-sort="price" data-type="num">Price</th>
+                <th class="sortable" data-sort="price_change_pct" data-type="num">Chg%</th>
+                <th class="sortable" data-sort="volume_ratio" data-type="num">Vol×</th>
+                <th class="sortable" data-sort="rsi" data-type="num">RSI</th>
+                <th class="sortable" data-sort="opportunity_type" data-type="str">Type</th>
+                <th class="sortable" data-sort="opportunity_score" data-type="num">Score</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -81,6 +85,6 @@
     </main>
 
     <p id="status" class="status">Pick a market and press Refresh to scan.</p>
-    <script src="/static/opportunity.js?v=1"></script>
+    <script src="/static/opportunity.js?v=2"></script>
   </body>
 </html>

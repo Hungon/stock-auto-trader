@@ -17,6 +17,7 @@ from stock_auto_trader.data.bars_util import sanitize_bars
 from stock_auto_trader.data.fetch import fetch_bars_between, resolve_ticker
 from stock_auto_trader.markets.symbols import JAPAN_STOCKS, US_STOCKS
 from stock_auto_trader.opportunity.engine import (
+    SETUP_TYPES,
     compute_opportunity_signal,
     signal_to_dict,
 )
@@ -140,6 +141,7 @@ def scan_opportunities(
         "market": market,
         "start": start.isoformat(),
         "end": end.isoformat(),
+        "setup_types": SETUP_TYPES,
         "summary": _build_summary(signals),
         "signals": signals,
         "errors": errors,

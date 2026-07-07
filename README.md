@@ -182,7 +182,11 @@ opportunity_score =
 
 ### Setup types
 
-Each symbol is classified into one setup type: **Momentum Breakout**, **Pullback Setup**, **Oversold Rebound Watch**, **High Volume Alert**, **Bearish Breakdown**, or **Neutral / Mixed**. The UI shows summary cards (market bias, breakout/high-volume/bearish counts, top opportunity), filter chips per setup type, a ranked table, and a detail panel with a score breakdown, plain-language explanation, "watch next" list, and a **strategy fit** preview (strong / possible / weak) against the backtest strategies. **Open Chart** and **Run Backtest** buttons deep-link to the other pages with the symbol pre-filled.
+Each symbol is classified into one setup type (first match wins, strongest signal first): **Momentum Breakout**, **New High Candidate**, **Trend Continuation**, **MA Crossover Candidate**, **Pullback Setup**, **High Volume Alert**, **RSI Reversal Candidate**, **Momentum Watch**, **Oversold Rebound Watch**, **Neutral / Mixed**, **Weakness / Short-Watch**, or **Bearish Breakdown**.
+
+The UI shows summary cards (market bias, breakout/high-volume/bearish counts, top opportunity), **filter chips** per setup type (only types present in the results are shown), a **sortable** ranked table (click any column header), an optional **custom symbols** box to scan arbitrary tickers instead of the presets, and a detail panel with a score breakdown, plain-language explanation, "watch next" list, and a **strategy fit** preview (strong / possible / weak) against the backtest strategies. **Open Chart** and **Run Backtest** buttons deep-link to the other pages with the symbol pre-filled.
+
+The scanner and backtester share one signal engine: `compute_opportunity_signal(...)` scores the latest bar for the live scan, and `compute_opportunity_signal_at_index(...)` reproduces the same signal at any historical bar.
 
 ### API
 
