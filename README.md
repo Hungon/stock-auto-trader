@@ -2,6 +2,9 @@
 
 Python app for **US stock auto-trading on Alpaca** (SMA crossover) plus a **local web UI** for charting and **multi-strategy backtesting** on US and **Japan (TSE)** symbols.
 
+> ## 🧪 This is the public DEMO build
+> Charting, backtesting, and the **Opportunity Finder** work fully, but **live/paper order submission is disabled** so this build is safe to run and showcase. The CLI (`run`, `run-once`) evaluates signals in dry-run only, and the web UI shows a **Demo** badge. Full order routing lives in the private "pro" build (`DEMO_BUILD=false`).
+
 > **Risk warning:** Automated trading can lose money quickly. This project is educational tooling, not financial advice. Test thoroughly on paper before using real money.
 
 ## Features

@@ -15,6 +15,21 @@ LIVE_BASE_URL = "https://api.alpaca.markets"
 PAPER_BASE_URL = "https://paper-api.alpaca.markets"
 
 
+class DemoModeError(RuntimeError):
+    """Raised when a live/paper order action is attempted in the demo build."""
+
+
+def demo_build_enabled() -> bool:
+    """Whether this is the public DEMO build (live/paper order submission disabled).
+
+    This repository is the public demo: charting, backtesting, and the Opportunity
+    Finder work fully, but real order routing is disabled so it is safe to run and
+    showcase. The full/"pro" build (private repo) sets ``DEMO_BUILD=false`` to
+    re-enable order submission.
+    """
+    return os.getenv("DEMO_BUILD", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime configuration for trading, backtests, risk, and logging."""
@@ -74,7 +89,12 @@ class Settings:
 
     @property
     def orders_enabled(self) -> bool:
-        """Paper mode always allows orders; live requires LIVE_TRADING_CONFIRMED=yes."""
+        """Paper mode always allows orders; live requires LIVE_TRADING_CONFIRMED=yes.
+
+        In the public demo build order submission is always disabled.
+        """
+        if demo_build_enabled():
+            return False
         if not self.is_live:
             return True
         return self.live_trading_confirmed
