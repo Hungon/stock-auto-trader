@@ -2,7 +2,7 @@ import math
 
 import pandas as pd
 
-from stock_auto_trader.opportunity.engine import (
+from app.opportunity.engine import (
     SETUP_TYPES,
     compute_opportunity_signal,
     compute_opportunity_signal_at_index,

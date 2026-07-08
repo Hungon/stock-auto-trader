@@ -7,20 +7,28 @@ auto-trader plus a local FastAPI web UI for TradingView-style charting and
 multi-strategy backtesting (US via Alpaca, Japan/TSE via yfinance). There is no
 database, cache, or queue — state is local JSON/CSV files.
 
-### Environment
-- Dependencies live in a virtualenv at `.venv/` (the update script creates it and
-  runs `pip install -e .` + `pip install pytest`). Activate it before any command:
-  `source .venv/bin/activate`.
-- `pytest` is intentionally NOT a declared dependency in `pyproject.toml`; the update
-  script installs it separately.
-- `.env` is created from `.env.example` during setup. It ships with placeholder
-  Alpaca keys, which is fine for the credential-free paths below.
+### Layout (important)
+- The code lives in a top-level `app/` package (run from the repo root — there is no
+  editable install). `app/main.py` is the FastAPI factory; `app/api/` holds routers;
+  `app/services/` is the orchestration layer; `app/core/` has config/logging/runtime;
+  domain modules (`strategy/`, `risk/`, `data/`, `broker/`, `backtest/`, `opportunity/`,
+  `chart/`) stay under `app/`. Web pages are Jinja templates in `app/templates/`
+  (extending `base.html`); assets in `app/static/css` + `app/static/js`.
 
-### Running / testing (standard commands live in `README.md` and `pyproject.toml`)
+### Environment
+- Dependencies live in a virtualenv at `.venv/` (the update script creates it and runs
+  `pip install -r requirements.txt`, which includes `pytest`). Activate it before any
+  command: `source .venv/bin/activate`.
+- There is no `pyproject.toml` / console script anymore; run the CLI as `python -m app.cli`.
+- `.env` is created from `.env.example` during setup. It ships with placeholder Alpaca
+  keys, which is fine for the credential-free paths below.
+
+### Running / testing (standard commands live in `README.md`)
 - Tests: `pytest` from the repo root (no pytest config file; no lint tooling is configured).
-- Web UI: `stock-trader chart` serves the chart (`/`) and backtest (`/backtest`) pages
-  plus `/api/*` on `http://127.0.0.1:8765`.
-- CLI backtest example: `stock-trader backtest --market jp --symbol 7203.T --compare`.
+- Web UI: `python -m app.cli chart` (or `uvicorn app.main:create_app --factory`) serves
+  the chart (`/`), backtest (`/backtest`), and opportunity (`/opportunity`) pages plus
+  `/api/*` on `http://127.0.0.1:8765`.
+- CLI backtest example: `python -m app.cli backtest --market jp --symbol 7203.T --compare`.
 
 ### Non-obvious gotchas
 - US symbols (e.g. `SPY`, `AAPL`) hit the real Alpaca API and will fail with `401`/`502`

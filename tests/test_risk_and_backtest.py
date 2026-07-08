@@ -1,15 +1,15 @@
 import pandas as pd
 import pytest
 
-from stock_auto_trader.backtest.engine import run_backtest
-from stock_auto_trader.backtest.execution import (
+from app.backtest.engine import run_backtest
+from app.backtest.execution import (
     FillParams,
     apply_slippage,
     calc_commission,
 )
-from stock_auto_trader.config import Settings
-from stock_auto_trader.config_validation import validate_settings
-from stock_auto_trader.risk.stale_data import check_stale_data
+from app.core.config import Settings
+from app.core.config_validation import validate_settings
+from app.risk.stale_data import check_stale_data
 
 
 def _bars_from_closes(closes: list[float]) -> pd.DataFrame:

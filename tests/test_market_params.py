@@ -1,8 +1,8 @@
-from stock_auto_trader.backtest.market_params import (
+from app.backtest.market_params import (
     resolve_backtest_limits,
     resolve_initial_cash,
 )
-from stock_auto_trader.config import Settings
+from app.core.config import Settings
 from alpaca.data.enums import DataFeed
 from pathlib import Path
 

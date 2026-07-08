@@ -5,8 +5,8 @@ import pytest
 from alpaca.data.enums import DataFeed
 from alpaca.trading.enums import OrderSide
 
-from stock_auto_trader.broker.alpaca import AlpacaBroker
-from stock_auto_trader.config import DemoModeError, Settings, demo_build_enabled
+from app.broker.alpaca import AlpacaBroker
+from app.core.config import DemoModeError, Settings, demo_build_enabled
 
 
 def _settings(**overrides) -> Settings:

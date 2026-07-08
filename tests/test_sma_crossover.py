@@ -1,6 +1,6 @@
 import pandas as pd
 
-from stock_auto_trader.strategy.sma_crossover import Signal, compute_sma_signal
+from app.strategy.sma_crossover import Signal, compute_sma_signal
 
 
 def test_buy_crossover():

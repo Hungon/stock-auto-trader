@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Auto Trader — Chart{% endblock %}
+{% block brand_title %}Stock Auto Trader{% endblock %}
+{% block nav_chart %}active{% endblock %}
+
+{% block head_extra %}
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+{% endblock %}
+
+{% block controls %}
+<div class="controls">
+  <select id="currency" title="Display currency">
+    <option value="auto">Currency: Auto</option>
+    <option value="usd">USD ($)</option>
+    <option value="jpy">JPY (¥)</option>
+  </select>
+  <select id="market" title="Market">
+    <option value="jp">Japan (TSE)</option>
+    <option value="us">United States</option>
+  </select>
+  <select id="stock-pick" title="Popular symbols"></select>
+  <input id="symbol" type="text" placeholder="e.g. 7203.T" maxlength="12" />
+  <input id="start" type="date" />
+  <input id="end" type="date" />
+  <button id="load" type="button">Load</button>
+  <label class="live-label">
+    <input id="live-toggle" type="checkbox" checked />
+    <span id="live-dot" class="live-dot"></span>
+    Live
+  </label>
+</div>
+{% endblock %}
+
+{% block toolbar_extra %}
+<div id="ohlc" class="ohlc">—</div>
+{% endblock %}
+
+{% block content %}
+<main class="layout">
+  <section class="chart-panel">
+    <div id="chart"></div>
+    <div id="legend" class="legend">
+      <span class="leg fast">SMA fast</span>
+      <span class="leg slow">SMA slow</span>
+      <span class="leg buy">▲ Buy signal</span>
+      <span class="leg sell">▼ Sell signal</span>
+    </div>
+  </section>
+
+  <aside class="sidebar">
+    <section class="card">
+      <h2>Price &amp; conversion</h2>
+      <dl id="conversion"></dl>
+    </section>
+    <section class="card">
+      <h2>Account</h2>
+      <dl id="account"></dl>
+    </section>
+    <section class="card">
+      <h2>Backtest (range)</h2>
+      <dl id="stats"></dl>
+    </section>
+    <section class="card trades-card">
+      <h2>Trades</h2>
+      <ul id="trades"></ul>
+    </section>
+  </aside>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/chart.js?v=1"></script>
+{% endblock %}

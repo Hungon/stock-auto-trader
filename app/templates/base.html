@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Stock Auto Trader{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/main.css?v=9" />
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo">SAT</span>
+        <span class="title">{% block brand_title %}Stock Auto Trader{% endblock %}</span>
+        {% if demo_build %}
+        <span class="demo-badge" title="Public demo build — live trading is disabled">Demo</span>
+        {% endif %}
+      </div>
+      <nav class="nav">
+        <a href="/" class="{% block nav_chart %}{% endblock %}">Chart</a>
+        <a href="/backtest" class="{% block nav_backtest %}{% endblock %}">Backtest</a>
+        <a href="/opportunity" class="{% block nav_opportunity %}{% endblock %}">Opportunity</a>
+      </nav>
+      {% block controls %}{% endblock %}
+      {% block toolbar_extra %}{% endblock %}
+    </header>
+
+    {% block content %}{% endblock %}
+
+    <p id="status" class="status">{% block status_text %}{% endblock %}</p>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

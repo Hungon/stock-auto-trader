@@ -1,6 +1,6 @@
 import pandas as pd
 
-from stock_auto_trader.backtest.engine import run_backtest
+from app.backtest.engine import run_backtest
 
 
 def _bars_from_closes(closes: list[float]) -> pd.DataFrame:

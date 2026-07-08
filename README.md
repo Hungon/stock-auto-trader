@@ -50,21 +50,42 @@ git clone https://github.com/Hungon/stock-auto-trader.git
 cd stock-auto-trader
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e .
+pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys (optional for Japan backtest-only)
 ```
 
+The CLI is invoked with `python -m app.cli <command>`; the web app runs via
+`python -m app.cli chart` (or `uvicorn app.main:create_app --factory`).
+
+### Project layout
+
+```text
+app/
+  main.py                 # FastAPI app factory (routers + templates + static)
+  cli.py                  # Typer CLI (status, run, backtest, chart, ...)
+  api/                    # HTTP routers: market, backtest, opportunity, ai
+  services/               # orchestration: market_data / indicator / opportunity / backtest / ai_perspective
+  core/                   # config, config_validation, logging, runtime
+  strategy/ risk/ markets/ data/ broker/ backtest/ opportunity/ chart/   # domain modules
+  templates/              # Jinja templates (base.html + chart/backtest/opportunity)
+  static/css/ static/js/  # main.css + chart.js / backtest.js / opportunity.js / ai_perspective.js
+tests/
+requirements.txt
+```
+
+Run tests with `pytest` from the repo root.
+
 ### 3. Check status (no orders)
 
 ```bash
-stock-trader status
+python -m app.cli status
 ```
 
 ### 4. Web UI (chart + backtest)
 
 ```bash
-stock-trader chart
+python -m app.cli chart
 ```
 
 
@@ -82,7 +103,7 @@ Toolbar: market (Japan / US), symbol, date range, currency. Default end date is 
 With `LIVE_TRADING_CONFIRMED=no`, `run-once` evaluates signals but does **not** send orders:
 
 ```bash
-stock-trader run-once
+python -m app.cli run-once
 ```
 
 To enable live orders:
@@ -94,8 +115,8 @@ LIVE_TRADING_CONFIRMED=yes
 ```
 
 ```bash
-stock-trader run-once   # single tick
-stock-trader run        # loop (Ctrl+C to stop)
+python -m app.cli run-once   # single tick
+python -m app.cli run        # loop (Ctrl+C to stop)
 ```
 
 Live loop uses the **SMA crossover** from `.env` (`FAST_SMA_PERIOD` / `SLOW_SMA_PERIOD`) on your `SYMBOL`. Backtest strategies are simulation-only.
@@ -123,29 +144,29 @@ All strategies are long-only and share position limits from `.env` (Japan backte
 
 ```bash
 # One strategy
-stock-trader backtest --market jp --symbol 6758.T --strategy ma_cross_20_50
+python -m app.cli backtest --market jp --symbol 6758.T --strategy ma_cross_20_50
 
 # All strategies on one symbol
-stock-trader backtest --market jp --symbol 6758.T --compare
+python -m app.cli backtest --market jp --symbol 6758.T --compare
 
 # All strategies × multiple symbols
-stock-trader backtest-scan --symbols 6758.T,7203.T,SPY,AAPL
+python -m app.cli backtest-scan --symbols 6758.T,7203.T,SPY,AAPL
 
 # Custom range (end before today avoids incomplete bars)
-stock-trader backtest --start 2022-01-01 --end 2025-06-03 --symbol SPY
+python -m app.cli backtest --start 2022-01-01 --end 2025-06-03 --symbol SPY
 
 # Local CSV (timestamp/date + open,high,low,close,volume)
-stock-trader backtest --csv ./data/spy.csv --symbol SPY
+python -m app.cli backtest --csv ./data/spy.csv --symbol SPY
 
 # Export trade journal
-stock-trader backtest --symbol SPY --strategy sma_crossover --export-trades trades.csv
-stock-trader export-trades --format csv --output trades.csv --symbol SPY
-stock-trader export-trades --input backtest-result.json --format csv --output trades.csv
+python -m app.cli backtest --symbol SPY --strategy sma_crossover --export-trades trades.csv
+python -m app.cli export-trades --format csv --output trades.csv --symbol SPY
+python -m app.cli export-trades --input backtest-result.json --format csv --output trades.csv
 
 # Walk-forward out-of-sample testing
-stock-trader walk-forward --symbol SPY --strategy sma_crossover \
+python -m app.cli walk-forward --symbol SPY --strategy sma_crossover \
   --start 2018-01-01 --end 2025-01-01 --train-years 3 --test-months 6
-stock-trader walk-forward --symbol SPY --compare --start 2018-01-01 --end 2025-01-01
+python -m app.cli walk-forward --symbol SPY --compare --start 2018-01-01 --end 2025-01-01
 ```
 
 List strategy IDs: `GET http://127.0.0.1:8765/api/strategies` (with chart server running).
@@ -153,8 +174,8 @@ List strategy IDs: `GET http://127.0.0.1:8765/api/strategies` (with chart server
 ### Kill switch
 
 ```bash
-stock-trader kill-switch --enable
-stock-trader kill-switch --disable
+python -m app.cli kill-switch --enable
+python -m app.cli kill-switch --disable
 ```
 
 ## Opportunity Finder
@@ -260,10 +281,10 @@ Daily bars are the most reliable for Japan backtests. Intraday history depends o
 
 ```bash
 # Backtest Sony on TSE data
-stock-trader backtest --market jp --symbol 6758.T --strategy sma_crossover
+python -m app.cli backtest --market jp --symbol 6758.T --strategy sma_crossover
 
 # Scan multiple Japan names
-stock-trader backtest-scan --symbols 7203.T,6758.T,9984.T
+python -m app.cli backtest-scan --symbols 7203.T,6758.T,9984.T
 
 # Japan preset in .env
 # MARKET=jp
@@ -275,7 +296,7 @@ stock-trader backtest-scan --symbols 7203.T,6758.T,9984.T
 You can bypass yfinance and backtest from a local file (any market):
 
 ```bash
-stock-trader backtest --csv ./data/7203.csv --symbol 7203.T --market jp
+python -m app.cli backtest --csv ./data/7203.csv --symbol 7203.T --market jp
 ```
 
 CSV must include `timestamp` or `date` plus `open`, `high`, `low`, `close`, `volume`.
@@ -288,7 +309,7 @@ CSV must include `timestamp` or `date` plus `open`, `high`, `low`, `close`, `vol
 - **End date** — default backtest/chart end is **yesterday** because today’s daily bar is often incomplete on Yahoo.
 - **FX** — cross-currency display also uses Yahoo (`USDJPY=X`) unless you set `FX_USDJPY` manually.
 
-Implementation: `src/stock_auto_trader/data/yfinance_provider.py`.
+Implementation: `app/data/yfinance_provider.py`.
 
 ## Currency (USD / JPY)
 
